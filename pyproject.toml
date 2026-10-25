@@ -18,6 +18,7 @@ dependencies = [
     "mcp>=2.2,<3",
     "keyring",
     "tomli>=2.0; python_version < '3.11'",
+    "typing_extensions>=4.4",
 ]
 
 [project.optional-dependencies]

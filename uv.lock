@@ -703,6 +703,7 @@ dependencies = [
     { name = "keyring" },
     { name = "mcp" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -724,6 +725,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "typing-extensions", specifier = ">=4.4" },
 ]
 provides-extras = ["dev"]
 
