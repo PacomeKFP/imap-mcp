@@ -132,3 +132,29 @@ def test_payload_bytes_returns_decoded_bytes_for_a_part() -> None:
 
 def test_payload_bytes_is_empty_for_multipart() -> None:
     assert content_mod.payload_bytes(mime.parse(_MULTIPART)) == b""
+
+
+def test_reply_to_my_own_message_goes_to_original_recipients() -> None:
+    original = _message(From="Me <me@x.org>", To="Bob <bob@x.org>")
+    assert mime.reply_target(original, False, "me@x.org") == (["bob@x.org"], [])
+
+
+def test_reply_to_my_own_message_never_returns_me() -> None:
+    original = _message(From="me@x.org", To="me@x.org, bob@x.org")
+    assert mime.reply_target(original, False, "ME@x.org") == (["bob@x.org"], [])
+
+
+def test_reply_to_my_own_message_without_recipients_is_empty() -> None:
+    original = _message(From="me@x.org")
+    assert mime.reply_target(original, True, "me@x.org") == ([], [])
+
+
+def test_reply_all_to_my_own_message_uses_original_to_and_cc() -> None:
+    original = _message(From="me@x.org", To="bob@x.org", Cc="carol@x.org, Me@x.org")
+    assert mime.reply_target(original, True, "me@x.org") == (["bob@x.org"], ["carol@x.org"])
+
+
+def test_me_is_never_a_recipient_of_someone_elses_message() -> None:
+    original = _message(From="Ann <ann@x.org>", To="me@x.org, bob@x.org", Cc="ME@X.ORG")
+    assert mime.reply_target(original, False, "me@x.org") == (["ann@x.org"], [])
+    assert mime.reply_target(original, True, "me@x.org") == (["ann@x.org"], ["bob@x.org"])

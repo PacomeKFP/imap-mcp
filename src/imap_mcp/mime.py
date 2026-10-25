@@ -69,11 +69,18 @@ def all_recipients(msg: Message) -> list[str]:
 
 
 def reply_target(original: Message, reply_all: bool, me: str) -> tuple[list[str], list[str]]:
-    """Recipients (To, Cc) of a reply; `me` is left out of the copies."""
-    targets = _unique(_bare_addresses(original.get("Reply-To") or original.get("From")))
+    """Recipients (To, Cc) of a reply; `me` is never a recipient. A reply to a message I
+    sent goes to its original To recipients."""
+    me_key = me.lower()
+    sent_by_me = any(addr.lower() == me_key for addr in _bare_addresses(original.get("From")))
+    if sent_by_me:
+        primary = _bare_addresses(original.get("To"))
+    else:
+        primary = _bare_addresses(original.get("Reply-To") or original.get("From"))
+    targets = _unique(addr for addr in primary if addr.lower() != me_key)
     if not reply_all:
         return targets, []
-    excluded = {me.lower(), *(addr.lower() for addr in targets)}
+    excluded = {me_key, *(addr.lower() for addr in targets)}
     others = _unique(_bare_addresses(original.get("To"), original.get("Cc")))
     return targets, [addr for addr in others if addr.lower() not in excluded]
 
