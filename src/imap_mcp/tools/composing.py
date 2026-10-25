@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.message import EmailMessage
+from typing import Any
 
 from mcp.server.mcpserver import Context
 
@@ -13,7 +14,16 @@ from ..config import settings
 from ..content import read_content
 from ..errors import MailError
 from ..permissions import guard
-from .common import authorize_attachments, deliver, drafts_folder, save_draft, save_to_sent, sender
+from .common import (
+    after_send,
+    authorize_attachments,
+    deliver,
+    drafts_folder,
+    save_draft,
+    save_to_sent,
+    sender,
+    with_warnings,
+)
 
 
 @dataclass(frozen=True)
@@ -39,7 +49,7 @@ def _build_message(to: list[str], subject: str, body: str, cc: list[str] | None,
 @mcp.tool()
 async def create_draft(ctx: Context, to: list[str], subject: str, body: str,
                        cc: list[str] | None = None, bcc: list[str] | None = None,
-                       html: str | None = None, attachments: list[str] | None = None) -> dict:
+                       html: str | None = None, attachments: list[str] | None = None) -> dict[str, Any]:
     """Create a draft in Drafts. Attachments are local file paths. Returns the draft uid."""
     await authorize_attachments(ctx, attachments)
     await guard.authorize(ctx, "mail.create", targets=[rights.DRAFTS])
@@ -52,7 +62,7 @@ async def create_draft(ctx: Context, to: list[str], subject: str, body: str,
 async def update_draft(ctx: Context, uid: str, to: list[str] | None = None,
                        subject: str | None = None, body: str | None = None,
                        cc: list[str] | None = None, bcc: list[str] | None = None,
-                       attachments: list[str] | None = None) -> dict:
+                       attachments: list[str] | None = None) -> dict[str, Any]:
     """Edit a draft: given fields replace the old values, others are kept.
     Existing attachments are kept; `attachments` adds new ones.
     The old version goes to the Agent Trash. Returns the new uid."""
@@ -63,7 +73,7 @@ async def update_draft(ctx: Context, uid: str, to: list[str] | None = None,
     return await in_thread(_update_draft, uid, edits)
 
 
-def _update_draft(uid: str, edits: DraftEdits) -> dict:
+def _update_draft(uid: str, edits: DraftEdits) -> dict[str, Any]:
     drafts = drafts_folder()
     with imap.session(drafts, readonly=False) as conn:
         raw, _ = imap.fetch_raw(conn, uid)
@@ -99,7 +109,7 @@ def _revised_draft(old: EmailMessage, edits: DraftEdits) -> EmailMessage:
 async def send_mail(ctx: Context, to: list[str], subject: str, body: str,
                     cc: list[str] | None = None, bcc: list[str] | None = None,
                     html: str | None = None, attachments: list[str] | None = None,
-                    save_copy: bool = True) -> dict:
+                    save_copy: bool = True) -> dict[str, Any]:
     """Send a mail over SMTP and keep a copy in Sent.
     Irreversible: check recipients and content first."""
     if not (to or cc or bcc):
@@ -108,19 +118,23 @@ async def send_mail(ctx: Context, to: list[str], subject: str, body: str,
     msg = await in_thread(_build_message, to, subject, body, cc, bcc, html, attachments)
     recipients = mime.all_recipients(msg)
     await guard.authorize(ctx, "mail.send", recipients=recipients)
-    await in_thread(deliver, msg, recipients, save_copy)
-    return {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients}
+    warnings = await in_thread(deliver, msg, recipients, save_copy)
+    return with_warnings(
+        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients},
+        warnings)
 
 
 @mcp.tool()
-async def send_draft(ctx: Context, uid: str, save_copy: bool = True) -> dict:
+async def send_draft(ctx: Context, uid: str, save_copy: bool = True) -> dict[str, Any]:
     """Send an existing draft, then move it to the Agent Trash. Irreversible."""
     await guard.authorize(ctx, "mail.read", targets=[rights.DRAFTS])
     msg, recipients, drafts = await in_thread(_load_draft, uid)
     await guard.authorize(ctx, "mail.send", recipients=recipients)
     await guard.authorize(ctx, "mail.delete", targets=[rights.DRAFTS])
-    await in_thread(_send_draft, msg, recipients, drafts, uid, save_copy)
-    return {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients}
+    warnings = await in_thread(_send_draft, msg, recipients, drafts, uid, save_copy)
+    return with_warnings(
+        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients},
+        warnings)
 
 
 def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
@@ -135,10 +149,18 @@ def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
 
 
 def _send_draft(msg: EmailMessage, recipients: list[str], drafts: str, uid: str,
-                save_copy: bool) -> None:
+                save_copy: bool) -> list[str]:
+    """Send the draft, then trash it and copy it to Sent. Returns the post-send warnings."""
     smtp.send(msg, recipients)
+    warnings: list[str] = []
+    after_send(warnings, "moving the draft to the Agent Trash",
+               lambda: _move_to_trash(drafts, uid))
+    if save_copy:
+        after_send(warnings, "saving a copy to Sent", lambda: save_to_sent(msg))
+    return warnings
+
+
+def _move_to_trash(drafts: str, uid: str) -> None:
     with imap.session(drafts, readonly=False) as conn:
         imap.ensure_folder(conn, settings.agent_trash)
         imap.move(conn, imap.uid_set([uid]), settings.agent_trash)
-    if save_copy:
-        save_to_sent(msg)

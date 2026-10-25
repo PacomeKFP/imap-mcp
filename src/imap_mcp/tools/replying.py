@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.message import EmailMessage
+from typing import Any
 
 from mcp.server.mcpserver import Context
 
@@ -11,7 +12,15 @@ from ..app import in_thread, mcp
 from ..compose import build_message, copy_attachments, prefixed, quote_reply
 from ..content import read_content
 from ..permissions import guard
-from .common import authorize_attachments, deliver, load_message, save_draft, sender
+from .common import (
+    after_send,
+    authorize_attachments,
+    deliver,
+    load_message,
+    save_draft,
+    sender,
+    with_warnings,
+)
 
 
 @dataclass(frozen=True)
@@ -25,7 +34,7 @@ class _Reply:
 @mcp.tool()
 async def reply_mail(ctx: Context, uid: str, body: str, folder: str = "INBOX",
                      reply_all: bool = False, send: bool = False, html: str | None = None,
-                     attachments: list[str] | None = None, include_quote: bool = True) -> dict:
+                     attachments: list[str] | None = None, include_quote: bool = True) -> dict[str, Any]:
     """Reply to a mail (In-Reply-To, References and 'Re:' handled). Creates a DRAFT by default;
     send=True sends now. reply_all=True keeps the other recipients in copy."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
@@ -35,8 +44,9 @@ async def reply_mail(ctx: Context, uid: str, body: str, folder: str = "INBOX",
     if send:
         recipients = mime.all_recipients(reply.message)
         await guard.authorize(ctx, "mail.send", recipients=recipients)
-        await in_thread(_send_reply, reply.message, recipients, folder, uid)
-        return {"sent": True, "to": reply.to, "cc": reply.cc, "subject": reply.subject}
+        warnings = await in_thread(_send_reply, reply.message, recipients, folder, uid)
+        return with_warnings(
+            {"sent": True, "to": reply.to, "cc": reply.cc, "subject": reply.subject}, warnings)
     await guard.authorize(ctx, "mail.create", targets=[rights.DRAFTS])
     drafts, draft_uid = await in_thread(save_draft, reply.message)
     return {"sent": False, "draft_folder": drafts, "draft_uid": draft_uid,
@@ -60,8 +70,15 @@ def _build_reply(uid: str, folder: str, body: str, reply_all: bool, html: str | 
     return _Reply(message, to, cc, subject)
 
 
-def _send_reply(msg: EmailMessage, recipients: list[str], folder: str, uid: str) -> None:
-    deliver(msg, recipients, save_copy=True)
+def _send_reply(msg: EmailMessage, recipients: list[str], folder: str, uid: str) -> list[str]:
+    """Send the reply, then flag the original as answered. Returns the post-send warnings."""
+    warnings = deliver(msg, recipients, save_copy=True)
+    after_send(warnings, "marking the original mail as answered",
+               lambda: _mark_answered(folder, uid))
+    return warnings
+
+
+def _mark_answered(folder: str, uid: str) -> None:
     with imap.session(folder, readonly=False) as conn:
         imap.store(conn, imap.uid_set([uid]), r"\Answered \Seen", True)
 
@@ -69,7 +86,7 @@ def _send_reply(msg: EmailMessage, recipients: list[str], folder: str, uid: str)
 @mcp.tool()
 async def forward_mail(ctx: Context, uid: str, to: list[str], body: str = "",
                        folder: str = "INBOX", cc: list[str] | None = None, send: bool = False,
-                       include_attachments: bool = True) -> dict:
+                       include_attachments: bool = True) -> dict[str, Any]:
     """Forward a mail with its body and, by default, its attachments.
     Creates a DRAFT unless send=True."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
@@ -77,8 +94,8 @@ async def forward_mail(ctx: Context, uid: str, to: list[str], body: str = "",
     if send:
         recipients = mime.all_recipients(msg)
         await guard.authorize(ctx, "mail.send", recipients=recipients)
-        await in_thread(deliver, msg, recipients, True)
-        return {"sent": True, "to": to, "subject": subject}
+        warnings = await in_thread(deliver, msg, recipients, True)
+        return with_warnings({"sent": True, "to": to, "subject": subject}, warnings)
     await guard.authorize(ctx, "mail.create", targets=[rights.DRAFTS])
     drafts, draft_uid = await in_thread(save_draft, msg)
     return {"sent": False, "draft_folder": drafts, "draft_uid": draft_uid,
