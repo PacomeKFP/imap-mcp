@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
@@ -37,6 +38,9 @@ def record(
     if recipients:
         entry["recipients"] = list(recipients)
     folder = rights.session_dir(config, session_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    with (folder / rights.JOURNAL_FILE).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        with (folder / rights.JOURNAL_FILE).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print(f"imap-mcp: cannot write the audit journal in {folder}: {exc}", file=sys.stderr)

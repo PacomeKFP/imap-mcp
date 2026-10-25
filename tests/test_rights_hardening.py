@@ -292,3 +292,41 @@ def test_recipient_entries_are_stored_lowercase_and_revoked_case_insensitively(
     revoke = parse("revoke", "mail.send", "--recipient", "ANNA@client.com", "--local")
     assert rights_cli.run(revoke, config) == 0
     assert rights.load(rights.local_file(config)).recipients == ["@client.com"]
+
+
+def test_separator_lookup_failure_falls_back_to_slash_and_is_retried(
+    tmp_path: Path,
+    make_settings: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    guard = Guard(make_settings(tmp_path), SESSION)
+    guard.roles = dict(ROLES)
+    calls: list[int] = []
+
+    def down() -> str:
+        calls.append(1)
+        raise MailError("server down", code="imap")
+
+    monkeypatch.setattr(permissions.imap, "folder_separator", down)
+    authorize(guard, "mail.read", targets=["INBOX"])
+    authorize(guard, "mail.read", targets=["INBOX"])
+    assert guard.separator is None
+    assert len(calls) == 2
+    assert "assuming '/'" in capsys.readouterr().err
+
+    monkeypatch.setattr(permissions.imap, "folder_separator", lambda: ".")
+    authorize(guard, "mail.read", targets=["INBOX"])
+    assert guard.separator == "."
+
+
+def test_failed_journal_write_keeps_the_action_and_warns(
+    tmp_path: Path, make_settings: SettingsFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = make_guard(make_settings, tmp_path)
+    sessions = rights.sessions_dir(guard.config)
+    sessions.parent.mkdir(parents=True)
+    sessions.write_text("not a folder", encoding="utf-8")  # makes every session write fail
+    authorize(guard, "mail.create", targets=[rights.DRAFTS])
+    assert "cannot write the audit journal" in capsys.readouterr().err
+    assert not (sessions / SESSION / rights.JOURNAL_FILE).exists()

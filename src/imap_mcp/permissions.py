@@ -160,7 +160,7 @@ class Guard:
     ) -> tuple[list[rights.Verdict], list[rights.Layer]]:
         """Resolve the folder separator once, then the decision for each target."""
         if self.separator is None and any(t is not None and not t.startswith("@") for t in wanted):
-            self.separator = await in_thread(imap.folder_separator)
+            self.separator = await self._resolve_separator()
         layers = self.layers()
         roles = await self._roles(wanted)
         separator = self.separator or "/"
@@ -169,6 +169,17 @@ class Guard:
             for target in wanted
         ]
         return verdicts, layers
+
+    async def _resolve_separator(self) -> str | None:
+        """The server's folder separator. On failure, None: '/' is used and the lookup is retried."""
+        try:
+            return await in_thread(imap.folder_separator)
+        except (MailError, OSError, imaplib.IMAP4.error) as exc:
+            print(
+                f"imap-mcp: cannot resolve the folder separator, assuming '/': {exc}",
+                file=sys.stderr,
+            )
+            return None
 
     async def _roles(self, wanted: Sequence[str | None]) -> dict[str, str]:
         """Alias to real folder name. Failures fall back to no aliases and are retried later."""
