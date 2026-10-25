@@ -29,6 +29,9 @@ SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
 _LIST_LINE = re.compile(
     r'\((?P<attrs>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$')
 _SUMMARY_FIELDS = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])"
+_SEARCH_ATOM = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:*,\-]*")
+_SEARCH_QUOTED = re.compile(r'"(?:[^"\\\x00-\x1f\x7f]|\\[^\x00-\x1f\x7f])*"')
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _SEPARATOR_LINE = re.compile(rb'\([^)]*\)\s+(?P<sep>"[^"]*"|NIL)')
 
 
@@ -42,14 +45,22 @@ class Folder:
         return next((attr[1:] for attr in self.attributes if attr[1:] in SPECIAL_ROLES), None)
 
 
+def _reject_control(value: str) -> str:
+    """Refuse control characters, which would let a value end the command line."""
+    if _CONTROL.search(value):
+        raise MailError("Control characters are not allowed in IMAP values.",
+                        code="invalid_argument")
+    return value
+
+
 def quote(name: str) -> str:
     """Folder name in IMAP form (modified UTF-7, in double quotes)."""
-    return '"' + utf7.encode(name).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return '"' + utf7.encode(_reject_control(name)).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def search_literal(value: str) -> str:
     """Double-quoted string for SEARCH."""
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return '"' + _reject_control(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def uid_set(uids: Iterable[str]) -> str:
@@ -148,12 +159,31 @@ def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
 
 
 def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
-    """UIDs matching the SEARCH criteria; non-ASCII values are sent as UTF-8."""
-    utf8 = any(not part.isascii() for part in criteria)
-    args: list[str | bytes] = [part.encode(
-        "utf-8") if not part.isascii() else part for part in criteria]
-    charset = ["CHARSET", "UTF-8"] if utf8 else []
-    _, data = conn.uid("SEARCH", *charset, *(args or ["ALL"]))
+    """UIDs matching the SEARCH criteria, which are ANDed keyword and value tokens.
+
+    Each token must be an atom or a quoted string without control characters. A
+    non-ASCII quoted value is sent as an IMAP literal under CHARSET UTF-8. imaplib
+    sends at most one literal per command, so a search may hold one such value at
+    most. The value and its keyword (HEADER takes a field name too) move to the end.
+    """
+    for part in criteria:
+        if not (_SEARCH_ATOM.fullmatch(part) or _SEARCH_QUOTED.fullmatch(part)):
+            raise MailError(f"Invalid search criterion: {part!r}", code="invalid_argument")
+    literal_at = [i for i, part in enumerate(criteria) if not part.isascii()]
+    if len(literal_at) > 1:
+        raise MailError("Only one non-ASCII search value is supported per search.",
+                        code="invalid_argument")
+    if literal_at:
+        i = literal_at[0]
+        start = i - 2 if i >= 2 and criteria[i - 2].upper() == "HEADER" else i - 1
+        if start < 0:
+            raise MailError("A non-ASCII search value needs a keyword before it.",
+                            code="invalid_argument")
+        conn.literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
+        tokens = criteria[:start] + criteria[i + 1:] + criteria[start:i]
+        _, data = conn.uid("SEARCH", "CHARSET", "UTF-8", *tokens)
+    else:
+        _, data = conn.uid("SEARCH", *(criteria or ["ALL"]))
     return data[0].decode().split() if data and data[0] else []
 
 
@@ -252,6 +282,6 @@ def append(conn: Connection, folder: str, message: EmailMessage, flags: str = ""
 def uid_by_message_id(conn: Connection, folder: str, message_id: str) -> str | None:
     """UID of the message with this Message-ID in the folder, or None."""
     select(conn, folder, readonly=True)
-    uids = search_uids(conn, ["HEADER", "Message-ID",
-                       search_literal(message_id)])
+    message_id = re.sub(r"\s+", "", message_id)  # unfold a folded header; msg-ids hold no spaces
+    uids = search_uids(conn, ["HEADER", "Message-ID", search_literal(message_id)])
     return uids[-1] if uids else None
