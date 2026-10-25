@@ -11,26 +11,26 @@ from collections.abc import Sequence
 import keyring
 from keyring.errors import KeyringError
 
-from . import imap
+from . import imap, rights_cli
 from .config import SERVICE, get_credentials, settings
 from .errors import MailError
-from .server import run as run_server
+from .tools import run as run_server
 
 
 def setup_credentials() -> int:
     """Enregistre l'adresse et le mot de passe dans le trousseau système."""
-    user = input("Adresse mail : ").strip()
-    password = getpass.getpass("Mot de passe : ")
+    user = input("Email address: ").strip()
+    password = getpass.getpass("Password: ")
     if not user or not password:
-        print("Adresse et mot de passe requis.", file=sys.stderr)
+        print("Email address and password are required.", file=sys.stderr)
         return 1
     try:
         keyring.set_password(SERVICE, "user", user)
         keyring.set_password(SERVICE, user, password)
     except KeyringError as exc:
-        print(f"Trousseau système indisponible : {exc}", file=sys.stderr)
+        print(f"System keyring unavailable: {exc}", file=sys.stderr)
         return 1
-    print("Identifiants enregistrés dans le trousseau système.")
+    print("Credentials saved in the system keyring.")
     return 0
 
 
@@ -55,37 +55,44 @@ def check_connection() -> int:
         user, _ = get_credentials()
         with imap.session() as conn:
             print(
-                f"Connexion TLS et authentification OK : {user} ({settings.imap_host}:{settings.imap_port})")
+                f"TLS connection and authentication OK: {user} ({settings.imap_host}:{settings.imap_port})")
             folders = imap.list_folders(conn)
-            print(f"Dossiers ({len(folders)}) :")
+            print(f"Folders ({len(folders)}):")
             for folder in folders:
                 print(f"   {folder.name}")
             print(
-                f"INBOX : {imap.select(conn, 'INBOX')} messages (lecture seule)")
+                f"INBOX: {imap.select(conn, 'INBOX')} messages (read-only)")
             drafts = imap.special_folder(conn, "drafts")
             count, size = _folder_volume(conn, drafts)
-            print(f"{drafts} : {count} messages, {size / 1024:.1f} Ko au total")
+            print(f"{drafts}: {count} messages, {size / 1024:.1f} KB total")
+            if not settings.read_only:
+                imap.ensure_folder(conn, settings.agent_trash)
+                print(f"Agent Trash ready: {settings.agent_trash}")
     except (MailError, imaplib.IMAP4.error, OSError) as exc:
-        print(f"Échec : {exc}", file=sys.stderr)
+        print(f"Failed: {exc}", file=sys.stderr)
         return 1
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="imap-mcp", description="Serveur MCP IMAP/SMTP.")
+        prog="imap-mcp", description="IMAP/SMTP MCP server.")
     commands = parser.add_subparsers(
-        dest="command", metavar="{serve,setup,check}")
+        dest="command", metavar="{serve,setup,check,rights}")
     commands.add_parser(
-        "serve", help="lance le serveur MCP sur stdio (par défaut)")
+        "serve", help="run the MCP server on stdio (default)")
     commands.add_parser(
-        "setup", help="enregistre les identifiants dans le trousseau système")
+        "setup", help="store credentials in the system keyring")
     commands.add_parser(
-        "check", help="teste la connexion IMAP en lecture seule")
-    command = parser.parse_args(argv).command or "serve"
+        "check", help="test the IMAP connection")
+    rights_cli.add_parser(commands)
+    args = parser.parse_args(argv)
+    command = args.command or "serve"
     if command == "setup":
         return setup_credentials()
     if command == "check":
         return check_connection()
+    if command == "rights":
+        return rights_cli.run(args)
     run_server()
     return 0

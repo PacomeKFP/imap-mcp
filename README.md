@@ -39,6 +39,8 @@ Variables d'environnement :
 | `MAIL_READONLY` | non | `0` | `1` désactive toute écriture (envoi, déplacement, etc.) |
 | `MAIL_DOWNLOAD_DIR` | non | `~/Downloads/imap-mcp` | Dossier de téléchargement des pièces jointes |
 | `MAIL_MAX_BODY` | non | `20000` | Taille max du corps renvoyé au LLM (caractères) |
+| `MAIL_AGENT_TRASH` | non | `Agent Trash` | Dossier où l'agent place les messages « supprimés ». Aucune suppression définitive n'existe. |
+| `MAIL_PROJECT_DIR` | non | dossier de lancement | Projet qui contient les règles locales (`.imap-mcp/`) |
 
 ### Identifiants
 
@@ -95,24 +97,24 @@ Valeurs par défaut : IMAP en SSL sur le port `993`, SMTP sur le port `587` (STA
 imap-mcp check
 ```
 
-Si tout est correct, la commande affiche la connexion TLS, la liste des dossiers et le volume du dossier de brouillons. Elle ne modifie rien dans la boîte.
+Si tout est correct, la commande affiche la connexion TLS, la liste des dossiers et le volume du dossier de brouillons. Elle ne modifie aucun message. Hors `MAIL_READONLY=1`, elle crée le dossier `Agent Trash` s'il n'existe pas.
 
-En cas d'échec :
+En cas d'échec (message `Failed: ...`) :
 
-- `Variable d'environnement MAIL_HOST manquante` : définir `MAIL_HOST` (section ci-dessus).
-- `Identifiants absents` : lancer `imap-mcp setup`.
+- `Environment variable MAIL_HOST is missing` : définir `MAIL_HOST` (section ci-dessus).
+- `Credentials missing` : lancer `imap-mcp setup`, ou définir `MAIL_USER` et `MAIL_PASSWORD`.
 - Erreur TLS ou délai dépassé : vérifier `MAIL_HOST` et `MAIL_PORT`.
-- Authentification refusée : vérifier le mot de passe, et que l'accès IMAP est activé pour votre compte.
+- `Authentication refused` : vérifier le mot de passe, et que l'accès IMAP est activé pour votre compte.
 
 ## Mode lecture seule (MAIL_READONLY)
 
-`MAIL_READONLY=1` bloque toute écriture sur la boîte : envoi, brouillons, réponses, transferts, déplacements, copies, archivage, corbeille, indésirables, marquage (lu, suivi, répondu), création, renommage et suppression de dossiers, et `read_mail` avec `mark_read=true`.
+`MAIL_READONLY=1` bloque toute écriture sur la boîte : envoi, brouillons, réponses, transferts, déplacements, copies, archivage, suppression (vers `Agent Trash`), indésirables, marquage (lu, suivi, répondu), création et renommage de dossiers, et `read_mail` avec `mark_read=true`.
 
 La lecture, la recherche, la liste des dossiers et le téléchargement de pièces jointes sur le disque restent possibles. Ce réglage est une protection côté client : pour une garantie stricte, utiliser un compte en lecture seule côté serveur de messagerie.
 
 ## Ligne de commande
 
-La CLI ne propose pas de commandes de messagerie : `imap-mcp` lance le serveur MCP, et `setup` et `check` servent à la configuration. Lire, rechercher ou envoyer des mails passe par un client MCP.
+`imap-mcp` lance le serveur MCP. Les sous-commandes `setup` et `check` servent à la configuration, et `rights` gère les droits d'accès (voir ci-dessous). Lire, rechercher ou envoyer des mails passe par un client MCP.
 
 ## Guide pour un agent
 
@@ -140,20 +142,69 @@ Si vous donnez le lien du dépôt à un agent (Claude, Copilot, etc.), il doit s
 7. Tester dans cet ordre : `whoami`, puis `list_folders`, puis `search_mails` avec `limit: 5`.
 8. Ne jamais envoyer de message sans confirmation explicite de l'utilisateur : les envois sont irréversibles.
 
+## Droits d'accès
+
+Chaque action sensible est soumise à une règle :
+
+- `allow` : autorisée sans question ;
+- `ask` : l'utilisateur est interrogé ;
+- `deny` : refusée.
+
+Actions : `account.read`, `folder.read`, `folder.create`, `folder.update`, `mail.read`, `mail.create`, `mail.update`, `mail.move`, `mail.delete`, `mail.send`, `file.read`, `file.download`.
+
+Par défaut, sont autorisées : la lecture des comptes, dossiers et mails, la création de dossiers, le marquage des mails, la création de brouillons dans `Drafts` (cible `@drafts`) et le téléchargement vers le dossier de téléchargement (cible `@downloads`). Tout le reste demande une confirmation.
+
+Les cibles `@drafts`, `@archive`, `@junk` et `@downloads` désignent les dossiers spéciaux et le dossier de téléchargement.
+
+Ordre de décision : la première couche qui contient une règle correspondante l'emporte.
+
+1. Session : `.imap-mcp/sessions/<id>/rights.toml` dans le projet. Prime sur les deux autres, y compris pour un refus.
+2. Local : `.imap-mcp/rights.toml` dans le projet.
+3. Global : `%APPDATA%\imap-mcp\rights.toml` (Windows).
+
+Dans une même couche, la règle sur le dossier le plus précis l'emporte ; à précision égale, la plus restrictive. Une règle sur un dossier couvre aussi ses sous-dossiers.
+
+Envoi : `mail.send` ne demande rien si tous les destinataires figurent dans la liste autorisée (adresse exacte ou `@domaine`). Sinon, l'utilisateur est interrogé.
+
+Commandes, à lancer dans un terminal :
+
+```powershell
+imap-mcp rights allow mail.move --folder Clients --local
+imap-mcp rights deny mail.move --folder "Clients/Archive" --local
+imap-mcp rights allow mail.send --recipient @client.com --local
+imap-mcp rights allow mail.move --folder Clients --session
+imap-mcp rights list
+imap-mcp rights explain mail.move --folder Clients
+imap-mcp rights revoke mail.move --folder Clients --local
+imap-mcp rights prune --days 30
+```
+
+Portée : `--local` (projet, permanent), `--global` (utilisateur, permanent), `--session [ID]` (cette session seulement ; ID par défaut : la plus récente).
+
+Question à l'utilisateur : si le client MCP supporte la demande d'approbation, l'utilisateur choisit `once` (une fois), `session` (cette session) ou `refuse`. Sinon, l'appel échoue avec le code `permission_required` ; l'agent doit alors demander à l'utilisateur de lancer la commande `imap-mcp rights ...` indiquée.
+
+Une session correspond à un lancement du serveur MCP. Son journal est dans `.imap-mcp/sessions/<id>/journal.jsonl` (écritures et décisions ; les lectures autorisées ne sont pas journalisées). `imap-mcp rights prune` supprime les dossiers de session de plus de 30 jours, sauf le plus récent.
+
+`.imap-mcp/` est créé dans `MAIL_PROJECT_DIR` (par défaut, le dossier de lancement du serveur). Pour fixer le projet, ajouter `MAIL_PROJECT_DIR` à la section `env` de la configuration du client, et ajouter `.imap-mcp/` au `.gitignore` de vos projets.
+
+Aucun outil ne supprime définitivement un message.
+
 ## Outils exposés
 
-- Comptes et dossiers : `whoami`, `list_folders`, `get_quota`, `create_folder`, `rename_folder`, `delete_folder`
+- Comptes et dossiers : `whoami`, `list_folders`, `get_quota`, `create_folder`, `rename_folder`
 - Lecture : `search_mails`, `read_mail`, `get_thread`, `download_attachment`
-- État et déplacement : `mark_mails`, `move_mails`, `copy_mails`, `archive_mails`, `trash_mails`, `mark_spam`
+- État et déplacement : `mark_mails`, `move_mails`, `copy_mails`, `archive_mails`, `delete_mails`, `mark_spam`
 - Composition : `create_draft`, `update_draft`, `send_mail`, `send_draft`, `reply_mail`, `forward_mail`
 
-Les envois et réponses sont irréversibles. `reply_mail` et `forward_mail` créent un brouillon par défaut.
+Les envois et réponses sont irréversibles. `reply_mail` et `forward_mail` créent un brouillon par défaut. `delete_mails` déplace vers `Agent Trash`.
+
+Déplacer des messages exige que le serveur supporte les extensions IMAP `MOVE` ou `UIDPLUS`. Sinon, l'opération est refusée (`move_unsupported`).
 
 ## Sécurité
 
 - Aucun identifiant ni nom de serveur n'est écrit dans le code.
-- `.env` et `.mcp.json` sont exclus de Git.
-- Aucune suppression définitive : « supprimer » déplace vers la corbeille.
+- `.env`, `.mcp.json` et `.imap-mcp/` sont exclus de Git.
+- Aucune suppression définitive, quelles que soient les règles : « supprimer » déplace vers `Agent Trash`. Les déplacements IMAP ne visent que les UID demandés.
 - Utiliser `MAIL_READONLY=1` pour une utilisation en lecture seule.
 
 ## Développement

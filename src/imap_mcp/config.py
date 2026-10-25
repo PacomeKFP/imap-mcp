@@ -8,14 +8,28 @@ from pathlib import Path
 import keyring
 from keyring.errors import KeyringError
 
-from .errors import ConfigError, MailError
+from .errors import ConfigError
 
 SERVICE = "imap-mcp"
 TIMEOUT = 40
+AGENT_DIR = ".imap-mcp"
 
 
 def _flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _int(name: str, default: str) -> int:
+    raw = os.environ.get(name, "").strip() or default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be an integer, got {raw!r}.") from None
+
+
+def _user_config_dir() -> Path:
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / SERVICE
 
 
 @dataclass(frozen=True)
@@ -27,19 +41,25 @@ class Settings:
     read_only: bool
     download_dir: Path
     max_body: int
+    agent_trash: str
+    project_dir: Path
+    config_dir: Path
 
 
 def load_settings() -> Settings:
     imap_host = os.environ.get("MAIL_HOST", "").strip()
     return Settings(
         imap_host=imap_host,
-        imap_port=int(os.environ.get("MAIL_PORT", "993")),
+        imap_port=_int("MAIL_PORT", "993"),
         smtp_host=os.environ.get("MAIL_SMTP_HOST", "").strip() or imap_host,
-        smtp_port=int(os.environ.get("MAIL_SMTP_PORT", "587")),
+        smtp_port=_int("MAIL_SMTP_PORT", "587"),
         read_only=_flag("MAIL_READONLY"),
         download_dir=Path(os.environ.get("MAIL_DOWNLOAD_DIR")
                           or Path.home() / "Downloads" / SERVICE),
-        max_body=int(os.environ.get("MAIL_MAX_BODY", "20000")),
+        max_body=_int("MAIL_MAX_BODY", "20000"),
+        agent_trash=os.environ.get("MAIL_AGENT_TRASH", "").strip() or "Agent Trash",
+        project_dir=Path(os.environ.get("MAIL_PROJECT_DIR") or Path.cwd()),
+        config_dir=_user_config_dir(),
     )
 
 
@@ -48,14 +68,8 @@ settings = load_settings()
 
 def require(value: str, variable: str) -> str:
     if not value:
-        raise ConfigError(
-            f"Variable d'environnement {variable} manquante (ex. imap.example.com).")
+        raise ConfigError(f"Environment variable {variable} is missing (e.g. imap.example.com).")
     return value
-
-
-def ensure_writable() -> None:
-    if settings.read_only:
-        raise MailError("Serveur en lecture seule (MAIL_READONLY=1).")
 
 
 def get_credentials() -> tuple[str, str]:
@@ -66,7 +80,7 @@ def get_credentials() -> tuple[str, str]:
         user, password = _from_keyring(user, password)
     if not (user and password):
         raise ConfigError(
-            "Identifiants absents : définir MAIL_USER et MAIL_PASSWORD, ou lancer `imap-mcp setup`.")
+            "Credentials missing: set MAIL_USER and MAIL_PASSWORD, or run `imap-mcp setup`.")
     return user, password
 
 

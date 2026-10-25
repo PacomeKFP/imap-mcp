@@ -202,7 +202,7 @@ def attach_files(msg: EmailMessage, paths: list[str] | None) -> None:
     for raw_path in paths or []:
         path = Path(raw_path).expanduser()
         if not path.is_file():
-            raise MailError(f"Pièce jointe introuvable : {raw_path}")
+            raise MailError(f"Attachment not found: {raw_path}", code="not_found")
         content_type = mimetypes.guess_type(
             path.name)[0] or "application/octet-stream"
         add_bytes(msg, path.read_bytes(), content_type, path.name)

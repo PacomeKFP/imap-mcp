@@ -15,8 +15,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "mcp",
+    "mcp>=2.2",
     "keyring",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

@@ -15,6 +15,7 @@ from .config import TIMEOUT, get_credentials, require, settings
 from .errors import MailError
 
 Connection = imaplib.IMAP4_SSL
+imaplib.Commands.setdefault("MOVE", ("SELECTED",))  # RFC 6851; imaplib does not know MOVE
 
 # Rôle -> noms de repli, utilisés si le serveur n'expose pas l'attribut SPECIAL-USE.
 SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
@@ -27,6 +28,7 @@ SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
 _LIST_LINE = re.compile(
     r'\((?P<attrs>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$')
 _SUMMARY_FIELDS = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])"
+_SEPARATOR_LINE = re.compile(rb'\([^)]*\)\s+(?P<sep>"[^"]*"|NIL)')
 
 
 @dataclass(frozen=True)
@@ -53,7 +55,7 @@ def uid_set(uids: Iterable[str]) -> str:
     """Valide une liste d'UID et la renvoie au format IMAP (1,2,3)."""
     clean = [str(uid).strip() for uid in uids]
     if not clean or not all(re.fullmatch(r"\d+", uid) for uid in clean):
-        raise MailError("uids doit être une liste d'entiers non vide.")
+        raise MailError("uids must be a non-empty list of integers.", code="invalid_uids")
     return ",".join(clean)
 
 
@@ -61,7 +63,7 @@ def expect_ok(status: str, data: list[Any], action: str) -> None:
     if status != "OK":
         detail = data[0].decode(errors="replace") if data and isinstance(
             data[0], bytes) else data
-        raise MailError(f"{action} refusé : {detail}")
+        raise MailError(f"{action} refused by server: {detail}", code="server_refused")
 
 
 @contextmanager
@@ -74,7 +76,7 @@ def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connec
         try:
             conn.login(user, password)
         except imaplib.IMAP4.error as exc:
-            raise MailError(f"Authentification refusée : {exc}") from exc
+            raise MailError(f"Authentication refused: {exc}", code="auth_failed") from exc
         if folder is not None:
             select(conn, folder, readonly)
         yield conn
@@ -87,7 +89,7 @@ def select(conn: Connection, folder: str, readonly: bool = True) -> int:
     """Sélectionne un dossier et renvoie son nombre de messages."""
     status, data = conn.select(quote(folder), readonly=readonly)
     if status != "OK":
-        raise MailError(f"Dossier introuvable ou inaccessible : {folder}")
+        raise MailError(f"Folder not found or not accessible: {folder}", code="folder_not_found")
     return int(data[0])
 
 
@@ -122,7 +124,7 @@ def special_folder(conn: Connection, role: str) -> str:
     for fallback in SPECIAL_ROLES[role]:
         if fallback.lower() in by_lower:
             return by_lower[fallback.lower()]
-    raise MailError(f"Dossier spécial introuvable : {role}")
+    raise MailError(f"Special folder not found: {role}", code="special_folder_missing")
 
 
 def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
@@ -152,7 +154,7 @@ def fetch_raw(conn: Connection, uid: str) -> tuple[bytes, str]:
         if isinstance(part, tuple):
             flags = re.search(rb"FLAGS \(([^)]*)\)", part[0])
             return part[1], flags[1].decode() if flags else ""
-    raise MailError(f"Message introuvable : uid {uid}")
+    raise MailError(f"Message not found: uid {uid}", code="not_found")
 
 
 def fetch_summaries(conn: Connection, uids: list[str]) -> list[dict[str, Any]]:
@@ -183,29 +185,48 @@ def store(conn: Connection, uids: str, flags: str, value: bool) -> None:
     """Ajoute (value=True) ou retire des drapeaux IMAP sur des UID déjà validés."""
     op = "+FLAGS.SILENT" if value else "-FLAGS.SILENT"
     status, data = conn.uid("STORE", uids, op, f"({flags})")
-    expect_ok(status, data, "Modification des drapeaux")
+    expect_ok(status, data, "Flag update")
 
 
 def copy(conn: Connection, uids: str, destination: str) -> None:
     status, data = conn.uid("COPY", uids, quote(destination))
-    expect_ok(status, data, "Copie")
-
-
-def delete_uids(conn: Connection, uids: str) -> None:
-    """Marque \\Deleted et purge ces seuls UID si UIDPLUS est disponible (sinon rien n'est purgé)."""
-    status, data = conn.uid("STORE", uids, "+FLAGS.SILENT", r"(\Deleted)")
-    expect_ok(status, data, "Suppression")
-    if has_capability(conn, "UIDPLUS"):
-        conn.uid("EXPUNGE", uids)
+    expect_ok(status, data, "Copy")
 
 
 def move(conn: Connection, uids: str, destination: str) -> None:
+    """Moves messages by UID. Never expunges anything beyond the given UIDs."""
     if has_capability(conn, "MOVE"):
         status, data = conn.uid("MOVE", uids, quote(destination))
-        expect_ok(status, data, "Déplacement")
+        expect_ok(status, data, "Move")
         return
+    if not has_capability(conn, "UIDPLUS"):
+        raise MailError("The server supports neither MOVE nor UIDPLUS; nothing was moved.",
+                        code="move_unsupported")
     copy(conn, uids, destination)
-    delete_uids(conn, uids)
+    status, data = conn.uid("STORE", uids, "+FLAGS.SILENT", r"(\Deleted)")
+    expect_ok(status, data, "Move")
+    status, data = conn.uid("EXPUNGE", uids)
+    expect_ok(status, data, "Move")
+
+
+def ensure_folder(conn: Connection, name: str) -> None:
+    """Creates and subscribes to a folder if it does not exist yet."""
+    if name in {folder.name for folder in list_folders(conn)}:
+        return
+    status, data = conn.create(quote(name))
+    expect_ok(status, data, f"Create {name}")
+    conn.subscribe(quote(name))
+
+
+def folder_separator() -> str:
+    """Hierarchy separator of the server, such as '/' or '.'."""
+    with session() as conn:
+        _, rows = conn.list('""', '""')
+    for row in rows or []:
+        match = _SEPARATOR_LINE.match(row) if isinstance(row, bytes) else None
+        if match and match["sep"] != b"NIL":
+            return match["sep"].decode().strip('"')
+    return "/"
 
 
 def append(conn: Connection, folder: str, message: EmailMessage, flags: str = "") -> None:
@@ -215,7 +236,7 @@ def append(conn: Connection, folder: str, message: EmailMessage, flags: str = ""
         imaplib.Time2Internaldate(time.time()),
         message.as_bytes(),
     )
-    expect_ok(status, data, f"Ajout dans {folder}")
+    expect_ok(status, data, f"Append to {folder}")
 
 
 def uid_by_message_id(conn: Connection, folder: str, message_id: str) -> str | None:

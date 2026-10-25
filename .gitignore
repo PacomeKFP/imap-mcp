@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .env
 .mcp.json
+.imap-mcp/
 dist/
 build/
 *.egg-info/
