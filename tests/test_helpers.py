@@ -1,9 +1,10 @@
 import pytest
 
 from imap_mcp import utf7
+from imap_mcp.compose import prefixed
+from imap_mcp.content import html_to_text
 from imap_mcp.errors import MailError
 from imap_mcp.imap import uid_set
-from imap_mcp.mime import html_to_text, prefixed
 
 
 @pytest.mark.parametrize("name", ["INBOX", "Éléments envoyés", "Projets/Alpha & Co"])
