@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:  # Python 3.10
+else:
     import tomli as tomllib
 
 from .config import AGENT_DIR, Settings
@@ -225,12 +226,11 @@ def _tables(data: dict[str, Any], key: str, path: Path) -> list[dict[str, Any]]:
 
 def _parse_rule(item: dict[str, Any], path: Path) -> Rule:
     action, decision, folder = item.get("action"), item.get("decision"), item.get("folder")
-    valid = (isinstance(action, str) and action in ACTIONS
-             and isinstance(decision, str) and decision in DECISIONS
-             and (folder is None or (isinstance(folder, str) and folder != "")))
-    if not valid:
-        raise MailError(f"Invalid rule in {path}: {item}", code="rights_invalid")
-    return Rule(action, decision, folder)
+    if (isinstance(action, str) and action in ACTIONS
+            and isinstance(decision, str) and decision in DECISIONS
+            and (folder is None or (isinstance(folder, str) and folder != ""))):
+        return Rule(action, decision, folder)
+    raise MailError(f"Invalid rule in {path}: {item}", code="rights_invalid")
 
 
 def _parse_entry(item: dict[str, Any], path: Path) -> str:
