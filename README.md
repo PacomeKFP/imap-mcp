@@ -198,10 +198,12 @@ Aucun outil ne supprime définitivement un message.
 
 - Comptes et dossiers : `whoami`, `list_folders`, `get_quota`, `create_folder`, `rename_folder`
 - Lecture : `search_mails`, `read_mail`, `get_thread`, `download_attachment`
-- État et déplacement : `mark_mails`, `move_mails`, `copy_mails`, `archive_mails`, `delete_mails`, `mark_spam`
+- État et déplacement : `mark_mails`, `move_mails`, `copy_mails`, `archive_mails`, `trash_mails`, `mark_spam`
 - Composition : `create_draft`, `update_draft`, `send_mail`, `send_draft`, `reply_mail`, `forward_mail`
 
-Les envois et réponses sont irréversibles. `reply_mail` et `forward_mail` créent un brouillon par défaut. `delete_mails` déplace vers `Agent Trash`.
+Les envois et réponses sont irréversibles. `reply_mail` et `forward_mail` créent un brouillon par défaut. `trash_mails` déplace vers `Agent Trash`.
+
+Les outils qui modifient la boîte renvoient un objet structuré : `mark_mails` renvoie `{count, folder, changes}` (`changes` liste les états posés : `read`, `flagged`, `answered`) ; `move_mails`, `copy_mails`, `archive_mails`, `mark_spam` et `trash_mails` renvoient `{count, folder, destination}` ; `create_folder` renvoie `{folder}` ; `rename_folder` renvoie `{old_name, new_name}`.
 
 Déplacer des messages exige que le serveur supporte les extensions IMAP `MOVE` ou `UIDPLUS`. Sinon, l'opération est refusée (`move_unsupported`).
 

@@ -16,6 +16,15 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Changed
 
+- **Rupture :** l'outil `delete_mails` est renommé `trash_mails` (il déplace déjà vers `Agent Trash`). Mettre à jour les noms d'outils dans les prompts et la configuration des clients.
+- **Rupture :** les outils de modification (`mark_mails`, `move_mails`, `copy_mails`, `archive_mails`, `mark_spam`, `trash_mails`, `create_folder`, `rename_folder`) renvoient des objets structurés au lieu de phrases : `{count, folder, destination}`, `{count, folder, changes}`, `{folder}` ou `{old_name, new_name}`.
+- `search_mails` renvoie `uidvalidity` ; les UID ne sont stables que tant qu'il ne change pas.
+- La recherche et les déplacements exploitent les nouvelles API d'`imap` : tri décroissant côté serveur, dossiers spéciaux via le cache des rôles.
+- La création et le renommage de dossiers vident le cache des dossiers spéciaux.
+- Les outils ouvrent une seule connexion IMAP par appel (`get_thread` en ouvrait deux).
+- Les paramètres des outils de modification au-delà du premier identifiant sont désormais nommés (mot-clé uniquement).
+- Les identifiants du trousseau sont mis en cache pendant la durée du processus : redémarrer le serveur MCP après un `imap-mcp setup`.
+
 - **Rupture :** les variables `MAIL_USER` et `MAIL_PASSWORD` ne sont plus utilisées. Migration : `imap-mcp setup`, puis retirer ces variables de la configuration du client MCP.
 - Les identifiants du trousseau sont mis en cache pendant la durée du processus : redémarrer le serveur MCP après un `imap-mcp setup`.
 - Les réglages sont chargés à la première utilisation et non plus à l'import : `imap-mcp --help` fonctionne même si la configuration est invalide.

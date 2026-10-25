@@ -6,11 +6,21 @@ import imaplib
 from typing import Any
 
 from mcp.server.mcpserver import Context
+from typing_extensions import TypedDict
 
 from .. import imap
 from ..app import in_thread, mcp
 from ..config import get_credentials, settings
 from ..permissions import guard
+
+
+class FolderCreated(TypedDict):
+    folder: str
+
+
+class FolderRenamed(TypedDict):
+    old_name: str
+    new_name: str
 
 
 @mcp.tool()
@@ -70,31 +80,31 @@ def _get_quota() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def create_folder(ctx: Context, name: str) -> str:
+async def create_folder(ctx: Context, name: str) -> FolderCreated:
     """Create a folder (e.g. 'Projects/Alpha')."""
     await guard.authorize(ctx, "folder.create", targets=[name])
     return await in_thread(_create_folder, name)
 
 
-def _create_folder(name: str) -> str:
+def _create_folder(name: str) -> FolderCreated:
     with imap.session() as conn:
         status, data = conn.create(imap.quote(name))
         imap.expect_ok(status, data, "Folder creation")
         conn.subscribe(imap.quote(name))
     imap.clear_caches()
-    return f"Folder created: {name}"
+    return {"folder": name}
 
 
 @mcp.tool()
-async def rename_folder(ctx: Context, old_name: str, new_name: str) -> str:
+async def rename_folder(ctx: Context, old_name: str, new_name: str) -> FolderRenamed:
     """Rename or move a folder."""
     await guard.authorize(ctx, "folder.update", targets=[old_name, new_name])
     return await in_thread(_rename_folder, old_name, new_name)
 
 
-def _rename_folder(old_name: str, new_name: str) -> str:
+def _rename_folder(old_name: str, new_name: str) -> FolderRenamed:
     with imap.session() as conn:
         status, data = conn.rename(imap.quote(old_name), imap.quote(new_name))
         imap.expect_ok(status, data, "Folder rename")
     imap.clear_caches()
-    return f"{old_name} -> {new_name}"
+    return {"old_name": old_name, "new_name": new_name}

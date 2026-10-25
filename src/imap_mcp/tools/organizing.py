@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 from mcp.server.mcpserver import Context
+from typing_extensions import TypedDict
 
 from .. import imap, rights
 from ..app import in_thread, mcp
 from ..config import settings
 from ..permissions import guard
+
+_FLAG_NAMES = {"read": r"\Seen", "flagged": r"\Flagged", "answered": r"\Answered"}
+
+
+class MarkResult(TypedDict):
+    count: int
+    folder: str
+    changes: dict[str, bool]
+
+
+class TransferResult(TypedDict):
+    count: int
+    folder: str
+    destination: str
 
 
 @mcp.tool()
@@ -18,90 +33,97 @@ async def mark_mails(
     read: bool | None = None,
     flagged: bool | None = None,
     answered: bool | None = None,
-) -> str:
-    """Set message state: read (seen), flagged, answered. None leaves a state unchanged."""
+) -> MarkResult:
+    """Set message state: read (seen), flagged, answered. None leaves a state unchanged.
+
+    changes lists the states that were set, by name (read, flagged, answered).
+    """
     await guard.authorize(ctx, "mail.update", targets=[folder])
     return await in_thread(_mark_mails, uids, folder, read, flagged, answered)
 
 
 def _mark_mails(
     uids: list[str], folder: str, read: bool | None, flagged: bool | None, answered: bool | None
-) -> str:
+) -> MarkResult:
     ids = imap.uid_set(uids)
-    changes = ((r"\Seen", read), (r"\Flagged", flagged), (r"\Answered", answered))
+    requested = {"read": read, "flagged": flagged, "answered": answered}
+    changes: dict[str, bool] = {
+        name: value for name, value in requested.items() if value is not None
+    }
     with imap.session(folder, readonly=False) as conn:
-        for flag, value in changes:
-            if value is not None:
-                imap.store(conn, ids, flag, value)
-    return f"{len(uids)} message(s) updated."
+        for name, value in changes.items():
+            imap.store(conn, ids, _FLAG_NAMES[name], value)
+    return {"count": len(uids), "folder": folder, "changes": changes}
 
 
 @mcp.tool()
-async def move_mails(ctx: Context, uids: list[str], destination: str, folder: str = "INBOX") -> str:
+async def move_mails(
+    ctx: Context, uids: list[str], destination: str, folder: str = "INBOX"
+) -> TransferResult:
     """Move messages to another folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, destination])
     return await in_thread(_move_mails, uids, destination, folder)
 
 
-def _move_mails(uids: list[str], destination: str, folder: str) -> str:
+def _move_mails(uids: list[str], destination: str, folder: str) -> TransferResult:
     ids = imap.uid_set(uids)
     with imap.session(folder, readonly=False) as conn:
         imap.move(conn, ids, destination)
-    return f"{len(uids)} message(s) moved to {destination}."
+    return {"count": len(uids), "folder": folder, "destination": destination}
 
 
 @mcp.tool()
-async def copy_mails(ctx: Context, uids: list[str], destination: str, folder: str = "INBOX") -> str:
-    """Copy messages to another folder."""
+async def copy_mails(
+    ctx: Context, uids: list[str], destination: str, folder: str = "INBOX"
+) -> TransferResult:
+    """Copy messages to another folder. The originals stay in place."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.create", targets=[destination])
     return await in_thread(_copy_mails, uids, destination, folder)
 
 
-def _copy_mails(uids: list[str], destination: str, folder: str) -> str:
+def _copy_mails(uids: list[str], destination: str, folder: str) -> TransferResult:
     ids = imap.uid_set(uids)
     with imap.session(folder) as conn:
         imap.copy(conn, ids, destination)
-    return f"{len(uids)} message(s) copied to {destination}."
+    return {"count": len(uids), "folder": folder, "destination": destination}
 
 
 @mcp.tool()
-async def archive_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> str:
+async def archive_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
     """Move messages to the Archive folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.ARCHIVE])
-    destination = await in_thread(_move_to_role, uids, folder, "archive")
-    return f"{len(uids)} message(s) archived in {destination}."
+    return await in_thread(_move_to_role, uids, folder, "archive")
 
 
 @mcp.tool()
-async def delete_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> str:
+async def trash_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
     """Move messages to the Agent Trash. Nothing is purged; only the user can empty that folder."""
     await guard.authorize(ctx, "mail.delete", targets=[folder])
-    return await in_thread(_delete_mails, uids, folder)
+    return await in_thread(_trash_mails, uids, folder)
 
 
-def _delete_mails(uids: list[str], folder: str) -> str:
+def _trash_mails(uids: list[str], folder: str) -> TransferResult:
     ids = imap.uid_set(uids)
     with imap.session(folder, readonly=False) as conn:
         imap.ensure_folder(conn, settings.agent_trash)
         imap.move(conn, ids, settings.agent_trash)
-    return f"{len(uids)} message(s) moved to {settings.agent_trash}."
+    return {"count": len(uids), "folder": folder, "destination": settings.agent_trash}
 
 
 @mcp.tool()
-async def mark_spam(ctx: Context, uids: list[str], folder: str = "INBOX") -> str:
+async def mark_spam(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
     """Move messages to the Junk folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.JUNK])
-    destination = await in_thread(_move_to_role, uids, folder, "junk")
-    return f"{len(uids)} message(s) moved to {destination}."
+    return await in_thread(_move_to_role, uids, folder, "junk")
 
 
-def _move_to_role(uids: list[str], folder: str, role: str) -> str:
+def _move_to_role(uids: list[str], folder: str, role: str) -> TransferResult:
     ids = imap.uid_set(uids)
     destination = imap.cached_special_folder(role)
     with imap.session(folder, readonly=False) as conn:
         imap.move(conn, ids, destination)
-    return destination
+    return {"count": len(uids), "folder": folder, "destination": destination}

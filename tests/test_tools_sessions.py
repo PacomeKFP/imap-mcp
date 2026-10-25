@@ -99,7 +99,7 @@ def test_move_to_role_uses_cached_folder_in_one_session(
 
     destination = organizing._move_to_role(["1", "2"], "SRC", "junk")
 
-    assert destination == "Junk Mail"
+    assert destination == {"count": 2, "folder": "SRC", "destination": "Junk Mail"}
     assert lookups == ["junk"]
     assert opened == ["SRC"]
     assert moves == [(imap.uid_set(["1", "2"]), "Junk Mail")]
@@ -111,6 +111,6 @@ def test_create_and_rename_folder_clear_the_role_cache(
     cleared: list[bool] = []
     monkeypatch.setattr(imap, "clear_caches", lambda: cleared.append(True))
 
-    assert account._create_folder("Projects") == "Folder created: Projects"
-    assert account._rename_folder("Old", "New") == "Old -> New"
+    assert account._create_folder("Projects") == {"folder": "Projects"}
+    assert account._rename_folder("Old", "New") == {"old_name": "Old", "new_name": "New"}
     assert cleared == [True, True]
