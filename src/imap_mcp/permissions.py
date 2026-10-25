@@ -107,7 +107,8 @@ class Guard:
         if choice is None:
             self._record(action, verdicts, recipients, "permission_required")
             raise MailError(f"{action} needs approval and this client cannot ask. "
-                            f"Ask the user, then run: {_hint(action)}", code="permission_required")
+                            f"Ask the user, then run: {_hint(action, self.session_id)}",
+                            code="permission_required")
         if choice == "refuse":
             self._record(action, verdicts, recipients, "refused")
             raise MailError(f"{action} was refused.", code="refused")
@@ -153,10 +154,10 @@ class Guard:
                        verdicts, recipients, outcome)
 
 
-def _hint(action: str) -> str:
+def _hint(action: str, session_id: str) -> str:
     if action == "mail.send":
-        return "imap-mcp rights allow mail.send --recipient ADDRESS --session"
-    return f"imap-mcp rights allow {action} [--folder FOLDER] --session"
+        return f"imap-mcp rights allow mail.send --recipient ADDRESS --session {session_id}"
+    return f"imap-mcp rights allow {action} [--folder FOLDER] --session {session_id}"
 
 
 SESSION_ID = new_session_id()

@@ -122,3 +122,25 @@ def test_roles_are_resolved_once_and_cached(tmp_path: Path, make_settings: Setti
     authorize(guard, "mail.read", targets=["Drafts"])
     assert len(calls) == 1
     assert guard.roles == ROLES
+
+
+class NoElicitation:
+    """Client that cannot elicit: the call raises, as the test client does."""
+
+    async def elicit(self, message: str, schema: Callable[..., Any]) -> None:
+        raise RuntimeError("elicitation not supported")
+
+
+def test_permission_hint_carries_the_current_session(tmp_path: Path, make_settings: SettingsFactory) -> None:
+    guard = make_guard(make_settings, tmp_path)
+    with pytest.raises(MailError) as info:
+        asyncio.run(guard.authorize(NoElicitation(), "mail.delete", targets=["INBOX"]))
+    assert info.value.code == "permission_required"
+    assert f"--session {SESSION}" in str(info.value)
+
+
+def test_hint_names_the_session_for_folder_and_send_rules() -> None:
+    assert permissions._hint("mail.move", SESSION) == (
+        f"imap-mcp rights allow mail.move [--folder FOLDER] --session {SESSION}")
+    assert permissions._hint("mail.send", SESSION) == (
+        f"imap-mcp rights allow mail.send --recipient ADDRESS --session {SESSION}")
