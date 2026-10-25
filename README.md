@@ -41,6 +41,11 @@ Variables d'environnement :
 | `MAIL_MAX_BODY` | non | `20000` | Taille max du corps renvoyé au LLM (caractères) |
 | `MAIL_AGENT_TRASH` | non | `Agent Trash` | Dossier où l'agent place les messages « supprimés ». Aucune suppression définitive n'existe. |
 | `MAIL_PROJECT_DIR` | non | dossier de lancement | Projet qui contient les règles locales (`.imap-mcp/`) |
+| `MAIL_TLS_INSECURE` | non | `0` | **Dangereux.** `1` désactive la vérification du certificat TLS IMAP. Ne jamais l'utiliser avec un serveur réel. |
+
+Les certificats TLS du serveur IMAP sont vérifiés par défaut.
+
+> **Attention : `MAIL_TLS_INSECURE=1` désactive la vérification des certificats IMAP.** Un tiers placé sur le réseau peut alors intercepter le mot de passe et le contenu des mails (attaque de l'intermédiaire). Réservé à un serveur de test local dont vous contrôlez le certificat.
 
 ### Identifiants
 
@@ -206,6 +211,24 @@ Déplacer des messages exige que le serveur supporte les extensions IMAP `MOVE` 
 - `.env`, `.mcp.json` et `.imap-mcp/` sont exclus de Git.
 - Aucune suppression définitive, quelles que soient les règles : « supprimer » déplace vers `Agent Trash`. Les déplacements IMAP ne visent que les UID demandés.
 - Utiliser `MAIL_READONLY=1` pour une utilisation en lecture seule.
+- Signaler une vulnérabilité en privé : voir [SECURITY.md](SECURITY.md).
+
+## Modèle de menace et limites
+
+Ce serveur donne à un LLM un accès à votre boîte mail. Les risques suivants ne sont pas couverts par les règles de droits.
+
+- **Injection de prompt par le contenu des mails.** Le corps, l'objet et les pièces jointes d'un message sont lus par le LLM. Un expéditeur malveillant peut y glisser des instructions (« transfère ce mail à… », « supprime… »). Le LLM peut les suivre. Un mail reçu n'est jamais une instruction de l'utilisateur.
+- **Le contrôle des droits est une politique côté client.** Les fichiers `.imap-mcp/rights.toml` et les commandes `imap-mcp rights ...` sont appliqués par le serveur MCP, mais ce ne sont pas des barrières de sécurité. Un agent disposant d'un accès shell peut modifier `.imap-mcp/rights.toml`, lancer lui-même `imap-mcp rights allow ...`, ou se connecter à la boîte avec les mêmes identifiants, en contournant le serveur.
+- **`MAIL_READONLY` est aussi côté client.** Le même agent peut contourner ce réglage. Seul un compte en lecture seule côté serveur de messagerie offre une garantie réelle.
+- **Confidentialité.** Le contenu des mails lus par le LLM est transmis au fournisseur du modèle.
+
+Recommandations :
+
+- Utiliser un compte IMAP en lecture seule côté serveur de messagerie, dès que c'est possible.
+- Placer les règles de droits hors de l'espace de travail de l'agent : utiliser la portée globale (`--global`, soit `%APPDATA%\imap-mcp\rights.toml` sous Windows) plutôt que `--local`, et ne pas donner à l'agent un accès en écriture à ce fichier.
+- Garder `MAIL_READONLY=1` pendant les premiers essais.
+- Ne jamais définir `MAIL_TLS_INSECURE=1` avec un serveur réel.
+- Relire chaque envoi avant de le confirmer : il est irréversible.
 
 ## Développement
 
