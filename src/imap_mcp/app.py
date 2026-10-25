@@ -1,4 +1,5 @@
 """MCP server instance, and the helper that keeps blocking IMAP work off the event loop."""
+
 from __future__ import annotations
 
 import functools

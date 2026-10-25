@@ -1,4 +1,5 @@
 """Modified UTF-7 encoding (RFC 3501) of IMAP folder names."""
+
 from __future__ import annotations
 
 import base64
@@ -15,8 +16,7 @@ def encode(text: str) -> str:
     def flush() -> None:
         if pending:
             raw = "".join(pending).encode("utf-16-be")
-            out.append(
-                "&" + base64.b64encode(raw).decode().rstrip("=").replace("/", ",") + "-")
+            out.append("&" + base64.b64encode(raw).decode().rstrip("=").replace("/", ",") + "-")
             pending.clear()
 
     for char in text:

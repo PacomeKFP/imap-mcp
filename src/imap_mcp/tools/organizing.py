@@ -1,4 +1,5 @@
 """Flag, move, copy and delete tools. Nothing is purged: deletion moves mail to the Agent Trash."""
+
 from __future__ import annotations
 
 from mcp.server.mcpserver import Context
@@ -10,15 +11,22 @@ from ..permissions import guard
 
 
 @mcp.tool()
-async def mark_mails(ctx: Context, uids: list[str], folder: str = "INBOX", read: bool | None = None,
-                     flagged: bool | None = None, answered: bool | None = None) -> str:
+async def mark_mails(
+    ctx: Context,
+    uids: list[str],
+    folder: str = "INBOX",
+    read: bool | None = None,
+    flagged: bool | None = None,
+    answered: bool | None = None,
+) -> str:
     """Set message state: read (seen), flagged, answered. None leaves a state unchanged."""
     await guard.authorize(ctx, "mail.update", targets=[folder])
     return await in_thread(_mark_mails, uids, folder, read, flagged, answered)
 
 
-def _mark_mails(uids: list[str], folder: str, read: bool | None, flagged: bool | None,
-                answered: bool | None) -> str:
+def _mark_mails(
+    uids: list[str], folder: str, read: bool | None, flagged: bool | None, answered: bool | None
+) -> str:
     ids = imap.uid_set(uids)
     changes = ((r"\Seen", read), (r"\Flagged", flagged), (r"\Answered", answered))
     with imap.session(folder, readonly=False) as conn:

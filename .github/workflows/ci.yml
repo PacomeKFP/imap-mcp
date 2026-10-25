@@ -30,9 +30,7 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
-      # Non-blocking until the formatting commit lands; remove continue-on-error afterwards.
       - name: Format check
-        continue-on-error: true
         run: uv run ruff format --check src tests
 
       - name: Type check

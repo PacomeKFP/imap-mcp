@@ -1,4 +1,5 @@
 """Source-folder checks of the organizing tools, with the guard and IMAP faked out."""
+
 from __future__ import annotations
 
 import asyncio
@@ -61,12 +62,15 @@ def test_spam_checks_source_read_then_move_to_junk(calls):
     assert ran == ["_move_to_role"]
 
 
-@pytest.mark.parametrize("tool, kwargs", [
-    (organizing.copy_mails, {"destination": "DST"}),
-    (organizing.move_mails, {"destination": "DST"}),
-    (organizing.archive_mails, {}),
-    (organizing.mark_spam, {}),
-])
+@pytest.mark.parametrize(
+    "tool, kwargs",
+    [
+        (organizing.copy_mails, {"destination": "DST"}),
+        (organizing.move_mails, {"destination": "DST"}),
+        (organizing.archive_mails, {}),
+        (organizing.mark_spam, {}),
+    ],
+)
 def test_denied_source_read_stops_before_io(monkeypatch, tool, kwargs):
     ran: list[str] = []
 

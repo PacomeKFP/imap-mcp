@@ -1,4 +1,5 @@
 """Entry point `imap-mcp`: MCP server (default), `setup`, `check` and `rights`."""
+
 from __future__ import annotations
 
 import argparse
@@ -42,8 +43,7 @@ def _folder_volume(conn: imap.Connection, folder: str) -> tuple[int, int]:
     _, rows = conn.fetch(f"1:{count}", "(RFC822.SIZE)")
     total = 0
     for row in rows or []:
-        match = re.search(rb"RFC822\.SIZE (\d+)",
-                          row) if isinstance(row, bytes) else None
+        match = re.search(rb"RFC822\.SIZE (\d+)", row) if isinstance(row, bytes) else None
         if match:
             total += int(match[1])
     return count, total
@@ -66,8 +66,10 @@ def check_connection() -> int:
     try:
         user, _ = get_credentials()
         with imap.session() as conn:
-            print(f"TLS connection and authentication OK: {user} "
-                  f"({settings.imap_host}:{settings.imap_port})")
+            print(
+                f"TLS connection and authentication OK: {user} "
+                f"({settings.imap_host}:{settings.imap_port})"
+            )
             _print_folders(conn)
             if not settings.read_only:
                 imap.ensure_folder(conn, settings.agent_trash)
@@ -79,16 +81,11 @@ def check_connection() -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="imap-mcp", description="IMAP/SMTP MCP server.")
-    commands = parser.add_subparsers(
-        dest="command", metavar="{serve,setup,check,rights}")
-    commands.add_parser(
-        "serve", help="run the MCP server on stdio (default)")
-    commands.add_parser(
-        "setup", help="store credentials in the system keyring")
-    commands.add_parser(
-        "check", help="test the IMAP connection")
+    parser = argparse.ArgumentParser(prog="imap-mcp", description="IMAP/SMTP MCP server.")
+    commands = parser.add_subparsers(dest="command", metavar="{serve,setup,check,rights}")
+    commands.add_parser("serve", help="run the MCP server on stdio (default)")
+    commands.add_parser("setup", help="store credentials in the system keyring")
+    commands.add_parser("check", help="test the IMAP connection")
     rights_cli.add_parser(commands)
     args = parser.parse_args(argv)
     command = args.command or "serve"

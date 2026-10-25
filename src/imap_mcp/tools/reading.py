@@ -1,4 +1,5 @@
 """Search, read and download tools."""
+
 from __future__ import annotations
 
 import re
@@ -25,11 +26,16 @@ _MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 _IMAP_DATE = re.compile(r"([0-9]{1,2})-([A-Za-z]{3})-([0-9]{4})")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED_FILENAMES = frozenset({
-    "CON", "PRN", "AUX", "NUL",
-    *(f"COM{number}" for number in range(1, 10)),
-    *(f"LPT{number}" for number in range(1, 10)),
-})
+_RESERVED_FILENAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -54,10 +60,24 @@ class SearchQuery:
 
 
 @mcp.tool()
-async def search_mails(ctx: Context, folder: str = "INBOX", text: str = "", sender: str = "", to: str = "",
-                       cc: str = "", subject: str = "", body: str = "", since: str = "", before: str = "",
-                       unread: bool | None = None, flagged: bool | None = None,
-                       larger_kb: int = 0, smaller_kb: int = 0, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+async def search_mails(
+    ctx: Context,
+    folder: str = "INBOX",
+    text: str = "",
+    sender: str = "",
+    to: str = "",
+    cc: str = "",
+    subject: str = "",
+    body: str = "",
+    since: str = "",
+    before: str = "",
+    unread: bool | None = None,
+    flagged: bool | None = None,
+    larger_kb: int = 0,
+    smaller_kb: int = 0,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
     """Multi-criteria search, newest first.
 
     text searches headers and body. since/before use DD-Mon-YYYY (e.g. 01-Oct-2026).
@@ -65,8 +85,23 @@ async def search_mails(ctx: Context, folder: str = "INBOX", text: str = "", send
     Paging with limit (max 100) and offset. Returns total and results (uid, date, from, to, subject, flags, size).
     """
     await guard.authorize(ctx, "mail.read", targets=[folder])
-    query = SearchQuery(folder, text, sender, to, cc, subject, body, since, before,
-                        unread, flagged, larger_kb, smaller_kb, limit, offset)
+    query = SearchQuery(
+        folder,
+        text,
+        sender,
+        to,
+        cc,
+        subject,
+        body,
+        since,
+        before,
+        unread,
+        flagged,
+        larger_kb,
+        smaller_kb,
+        limit,
+        offset,
+    )
     return await in_thread(_search_mails, query)
 
 
@@ -75,7 +110,7 @@ def _search_mails(query: SearchQuery) -> dict[str, Any]:
     limit, offset = _page(query.limit, query.offset)
     with imap.session(query.folder) as conn:
         uids = imap.search_uids(conn, criteria)[::-1]
-        page = uids[offset:offset + limit]
+        page = uids[offset : offset + limit]
         return {
             "folder": query.folder,
             "total": len(uids),
@@ -97,8 +132,14 @@ def _criteria(query: SearchQuery) -> list[str]:
 
 def _header_criteria(query: SearchQuery) -> list[str]:
     criteria: list[str] = []
-    for key, value in (("TEXT", query.text), ("FROM", query.sender), ("TO", query.to),
-                       ("CC", query.cc), ("SUBJECT", query.subject), ("BODY", query.body)):
+    for key, value in (
+        ("TEXT", query.text),
+        ("FROM", query.sender),
+        ("TO", query.to),
+        ("CC", query.cc),
+        ("SUBJECT", query.subject),
+        ("BODY", query.body),
+    ):
         if value:
             criteria += [key, imap.search_literal(value)]
     if query.since:
@@ -136,13 +177,19 @@ def _imap_date(value: str, name: str) -> str:
 
 
 def _bad_date(name: str) -> MailError:
-    return MailError(f"{name} must be a real date like DD-Mon-YYYY (e.g. 01-Oct-2026).",
-                     code="invalid_argument")
+    return MailError(
+        f"{name} must be a real date like DD-Mon-YYYY (e.g. 01-Oct-2026).", code="invalid_argument"
+    )
 
 
 @mcp.tool()
-async def read_mail(ctx: Context, uid: str, folder: str = "INBOX", include_html: bool = False,
-                    mark_read: bool = False) -> dict[str, Any]:
+async def read_mail(
+    ctx: Context,
+    uid: str,
+    folder: str = "INBOX",
+    include_html: bool = False,
+    mark_read: bool = False,
+) -> dict[str, Any]:
     """Read a mail: full headers, text body and attachments (use the index with download_attachment).
 
     Does not mark the message as read unless mark_read=True.
@@ -196,8 +243,7 @@ def _get_thread(uid: str, folder: str) -> list[dict[str, Any]]:
 
 def _message_ids(msg: Message) -> set[str]:
     """Message-IDs in the headers of a message: its own and those of its parents."""
-    header_values = " ".join(str(msg.get(field) or "")
-                             for field in _THREAD_FIELDS)
+    header_values = " ".join(str(msg.get(field) or "") for field in _THREAD_FIELDS)
     return set(re.findall(r"<[^>]+>", header_values))
 
 
@@ -205,19 +251,20 @@ def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> li
     uids: set[str] = set()
     for message_id in message_ids:
         for field in _THREAD_FIELDS:
-            uids.update(imap.search_uids(
-                conn, ["HEADER", field, imap.search_literal(message_id)]))
+            uids.update(imap.search_uids(conn, ["HEADER", field, imap.search_literal(message_id)]))
     return [{"folder": name, **item} for item in imap.fetch_summaries(conn, sorted(uids))]
 
 
 @mcp.tool()
-async def download_attachment(ctx: Context, uid: str, index: int, folder: str = "INBOX",
-                              dest_dir: str = "") -> dict[str, Any]:
+async def download_attachment(
+    ctx: Context, uid: str, index: int, folder: str = "INBOX", dest_dir: str = ""
+) -> dict[str, Any]:
     """Save an attachment to disk (index from read_mail). Default folder: Downloads/imap-mcp."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     target_dir, inside = await in_thread(_resolve_target_dir, dest_dir)
-    await guard.authorize(ctx, "file.download", targets=[rights.DOWNLOADS] if inside else [],
-                          detail=str(target_dir))
+    await guard.authorize(
+        ctx, "file.download", targets=[rights.DOWNLOADS] if inside else [], detail=str(target_dir)
+    )
     return await in_thread(_download_attachment, uid, index, folder, target_dir)
 
 
@@ -244,8 +291,10 @@ def _download_attachment(uid: str, index: int, folder: str, target_dir: Path) ->
         raise MailError(f"No attachment at index {index}.", code="not_found")
     payload = payload_bytes(part)
     if len(payload) > _MAX_ATTACHMENT_BYTES:
-        raise MailError(f"Attachment exceeds the {_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB limit.",
-                        code="too_large")
+        raise MailError(
+            f"Attachment exceeds the {_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB limit.",
+            code="too_large",
+        )
     target_dir.mkdir(parents=True, exist_ok=True)
     name = safe_filename(mime.decode_text(part.get_filename()), f"attachment-{index}")
     target = unique_path(target_dir / name)

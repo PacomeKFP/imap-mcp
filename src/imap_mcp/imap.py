@@ -1,4 +1,5 @@
 """IMAP connection and low-level operations: folders, search, messages, flags."""
+
 from __future__ import annotations
 
 import imaplib
@@ -26,10 +27,11 @@ SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
     "junk": ("Junk", "Spam"),
     "archive": ("Archive", "Archives"),
 }
-_LIST_LINE = re.compile(
-    r'\((?P<attrs>[^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+(?P<name>.+?)\s*$')
+_LIST_LINE = re.compile(r'\((?P<attrs>[^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+(?P<name>.+?)\s*$')
 _QUOTED_ESCAPE = re.compile(r"\\(.)")
-_SUMMARY_FIELDS = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])"
+_SUMMARY_FIELDS = (
+    "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])"
+)
 _SEARCH_ATOM = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:*,\-]*")
 _SEARCH_QUOTED = re.compile(r'"(?:[^"\\\x00-\x1f\x7f]|\\[^\x00-\x1f\x7f])*"')
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -49,8 +51,9 @@ class Folder:
 def _reject_control(value: str) -> str:
     """Refuse control characters, which would let a value end the command line."""
     if _CONTROL.search(value):
-        raise MailError("Control characters are not allowed in IMAP values.",
-                        code="invalid_argument")
+        raise MailError(
+            "Control characters are not allowed in IMAP values.", code="invalid_argument"
+        )
     return value
 
 
@@ -74,8 +77,7 @@ def uid_set(uids: Iterable[str]) -> str:
 
 def expect_ok(status: str, data: list[Any], action: str) -> None:
     if status != "OK":
-        detail = data[0].decode(errors="replace") if data and isinstance(
-            data[0], bytes) else data
+        detail = data[0].decode(errors="replace") if data and isinstance(data[0], bytes) else data
         raise MailError(f"{action} refused by server: {detail}", code="server_refused")
 
 
@@ -92,8 +94,12 @@ def tls_context() -> ssl.SSLContext:
 def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connection]:
     """Open an authenticated connection and select a folder when one is given."""
     user, password = get_credentials()
-    conn = Connection(require(settings.imap_host, "MAIL_HOST"),
-                      settings.imap_port, timeout=TIMEOUT, ssl_context=tls_context())
+    conn = Connection(
+        require(settings.imap_host, "MAIL_HOST"),
+        settings.imap_port,
+        timeout=TIMEOUT,
+        ssl_context=tls_context(),
+    )
     try:
         try:
             conn.login(user, password)
@@ -191,9 +197,13 @@ def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
     status, data = conn.status(quote(folder), "(MESSAGES UNSEEN)")
     if status != "OK" or not data:
         return None
-    text = " ".join(part.decode(errors="replace") if isinstance(part, bytes)
-                    else " ".join(p.decode(errors="replace") for p in part)
-                    for part in data if part)
+    text = " ".join(
+        part.decode(errors="replace")
+        if isinstance(part, bytes)
+        else " ".join(p.decode(errors="replace") for p in part)
+        for part in data
+        if part
+    )
     items = re.search(r"\(([^()]*)\)\s*$", text)
     if not items:
         return None
@@ -217,18 +227,20 @@ def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
             raise MailError(f"Invalid search criterion: {part!r}", code="invalid_argument")
     literal_at = [i for i, part in enumerate(criteria) if not part.isascii()]
     if len(literal_at) > 1:
-        raise MailError("Only one non-ASCII search value is supported per search.",
-                        code="invalid_argument")
+        raise MailError(
+            "Only one non-ASCII search value is supported per search.", code="invalid_argument"
+        )
     if literal_at:
         i = literal_at[0]
         start = i - 2 if i >= 2 and criteria[i - 2].upper() == "HEADER" else i - 1
         if start < 0:
-            raise MailError("A non-ASCII search value needs a keyword before it.",
-                            code="invalid_argument")
+            raise MailError(
+                "A non-ASCII search value needs a keyword before it.", code="invalid_argument"
+            )
         literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
         # imaplib sends bytes literals as-is; typeshed wrongly declares `literal: str | None`.
         conn.literal = literal  # type: ignore[assignment]
-        tokens = criteria[:start] + criteria[i + 1:] + criteria[start:i]
+        tokens = criteria[:start] + criteria[i + 1 :] + criteria[start:i]
         _, data = conn.uid("SEARCH", "CHARSET", "UTF-8", *tokens)
     else:
         _, data = conn.uid("SEARCH", *(criteria or ["ALL"]))
@@ -288,8 +300,10 @@ def move(conn: Connection, uids: str, destination: str) -> None:
         expect_ok(status, data, "Move")
         return
     if not has_capability(conn, "UIDPLUS"):
-        raise MailError("The server supports neither MOVE nor UIDPLUS; nothing was moved.",
-                        code="move_unsupported")
+        raise MailError(
+            "The server supports neither MOVE nor UIDPLUS; nothing was moved.",
+            code="move_unsupported",
+        )
     copy(conn, uids, destination)
     status, data = conn.uid("STORE", uids, "+FLAGS.SILENT", r"(\Deleted)")
     expect_ok(status, data, "Move")

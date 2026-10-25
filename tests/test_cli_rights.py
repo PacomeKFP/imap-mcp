@@ -1,4 +1,5 @@
 """`imap-mcp rights` CLI: scopes, recipient allowlists and error handling, without IMAP access."""
+
 from __future__ import annotations
 
 from argparse import ArgumentParser, Namespace
@@ -20,13 +21,21 @@ def parse(*argv: str) -> Namespace:
 
 def test_allow_local_rule_then_revoke(tmp_path: Path, make_settings: SettingsFactory) -> None:
     config = make_settings(tmp_path)
-    assert rights_cli.run(parse("allow", "mail.move", "--folder", "Clients", "--local"), config) == 0
-    assert rights.load(rights.local_file(config)).rules == [rights.Rule("mail.move", "allow", "Clients")]
-    assert rights_cli.run(parse("revoke", "mail.move", "--folder", "Clients", "--local"), config) == 0
+    assert (
+        rights_cli.run(parse("allow", "mail.move", "--folder", "Clients", "--local"), config) == 0
+    )
+    assert rights.load(rights.local_file(config)).rules == [
+        rights.Rule("mail.move", "allow", "Clients")
+    ]
+    assert (
+        rights_cli.run(parse("revoke", "mail.move", "--folder", "Clients", "--local"), config) == 0
+    )
     assert rights.load(rights.local_file(config)).rules == []
 
 
-def test_session_scope_needs_an_existing_session(tmp_path: Path, make_settings: SettingsFactory) -> None:
+def test_session_scope_needs_an_existing_session(
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     config = make_settings(tmp_path)
     args = parse("allow", "mail.send", "--recipient", "@client.com", "--session")
     assert rights_cli.run(args, config) == 1  # no session folder yet
@@ -35,7 +44,9 @@ def test_session_scope_needs_an_existing_session(tmp_path: Path, make_settings: 
     assert rights.load(rights.session_file(config, SESSION)).recipients == ["@client.com"]
 
 
-def test_recipients_only_apply_to_allow_mail_send(tmp_path: Path, make_settings: SettingsFactory) -> None:
+def test_recipients_only_apply_to_allow_mail_send(
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     config = make_settings(tmp_path)
     args = parse("ask", "mail.move", "--recipient", "x@y.org", "--local")
     assert rights_cli.run(args, config) == 1

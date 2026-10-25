@@ -1,4 +1,5 @@
 """Runtime guard: resolves rights before each tool, asks when needed, and journals decisions."""
+
 from __future__ import annotations
 
 import imaplib
@@ -16,8 +17,11 @@ from .config import Settings, settings
 from .errors import MailError
 
 # Pseudo-target aliases of the special folders, keyed to their IMAP role.
-ROLE_ALIASES: dict[str, str] = {rights.DRAFTS: "drafts", rights.ARCHIVE: "archive",
-                                rights.JUNK: "junk"}
+ROLE_ALIASES: dict[str, str] = {
+    rights.DRAFTS: "drafts",
+    rights.ARCHIVE: "archive",
+    rights.JUNK: "junk",
+}
 
 
 def _allowlisted(action: str, recipients: Sequence[str], layers: list[rights.Layer]) -> bool:
@@ -43,10 +47,17 @@ def counterparts(target: str | None, roles: Mapping[str, str]) -> list[str | Non
     return list(dict.fromkeys(names))
 
 
-def effective_decision(layers: Sequence[rights.Layer], action: str, target: str | None,
-                       roles: Mapping[str, str], separator: str) -> tuple[str, str]:
+def effective_decision(
+    layers: Sequence[rights.Layer],
+    action: str,
+    target: str | None,
+    roles: Mapping[str, str],
+    separator: str,
+) -> tuple[str, str]:
     """Strictest explicit decision over the target and its counterparts, else the target's default."""
-    results = [rights.decide(layers, action, name, separator) for name in counterparts(target, roles)]
+    results = [
+        rights.decide(layers, action, name, separator) for name in counterparts(target, roles)
+    ]
     explicit = [result for result in results if result[1] != "default"]
     if not explicit:
         return rights.decide(layers, action, target, separator)
@@ -55,8 +66,10 @@ def effective_decision(layers: Sequence[rights.Layer], action: str, target: str 
 
 def _names_folder(wanted: Sequence[str | None]) -> bool:
     """True when a target is a real folder or a special-folder alias (not None or @downloads)."""
-    return any(target is not None and (target in ROLE_ALIASES or not target.startswith("@"))
-               for target in wanted)
+    return any(
+        target is not None and (target in ROLE_ALIASES or not target.startswith("@"))
+        for target in wanted
+    )
 
 
 def _special_folders() -> dict[str, str]:
@@ -81,15 +94,23 @@ class Guard:
     def layers(self) -> list[rights.Layer]:
         return rights.load_layers(self.config, self.session_id)
 
-    async def authorize(self, ctx: Context, action: str, *, targets: Sequence[str | None] = (),
-                        recipients: Sequence[str] = (), detail: str = "") -> None:
+    async def authorize(
+        self,
+        ctx: Context,
+        action: str,
+        *,
+        targets: Sequence[str | None] = (),
+        recipients: Sequence[str] = (),
+        detail: str = "",
+    ) -> None:
         """Return if the action may run; else raise MailError. Asks the user if needed."""
         wanted: list[str | None] = list(targets) or [None]
         if self.config.read_only and action in rights.WRITE_ACTIONS:
             denials = [(t, rights.DENY, "config") for t in wanted]
             self._record(action, denials, recipients, "read_only")
-            raise MailError(f"{action} is blocked: the server is read-only (MAIL_READONLY=1).",
-                            code="read_only")
+            raise MailError(
+                f"{action} is blocked: the server is read-only (MAIL_READONLY=1).", code="read_only"
+            )
         verdicts, layers = await self._verdicts(action, wanted)
         if any(decision == rights.DENY for _, decision, _ in verdicts):
             self._record(action, verdicts, recipients, "denied")
@@ -105,9 +126,11 @@ class Guard:
         choice = await ask_user(ctx, action, asks, recipients, detail)
         if choice is None:
             self._record(action, verdicts, recipients, "permission_required")
-            raise MailError(f"{action} needs approval and this client cannot ask. "
-                            f"Ask the user, then run: {_hint(action, self.session_id)}",
-                            code="permission_required")
+            raise MailError(
+                f"{action} needs approval and this client cannot ask. "
+                f"Ask the user, then run: {_hint(action, self.session_id)}",
+                code="permission_required",
+            )
         if choice == "refuse":
             self._record(action, verdicts, recipients, "refused")
             raise MailError(f"{action} was refused.", code="refused")
@@ -116,7 +139,7 @@ class Guard:
         self._record(action, verdicts, recipients, choice)
 
     async def _verdicts(
-            self, action: str, wanted: list[str | None]
+        self, action: str, wanted: list[str | None]
     ) -> tuple[list[rights.Verdict], list[rights.Layer]]:
         """Resolve the folder separator once, then the decision for each target."""
         if self.separator is None and any(t is not None and not t.startswith("@") for t in wanted):
@@ -124,8 +147,10 @@ class Guard:
         layers = self.layers()
         roles = await self._roles(wanted)
         separator = self.separator or "/"
-        verdicts = [(target, *effective_decision(layers, action, target, roles, separator))
-                    for target in wanted]
+        verdicts = [
+            (target, *effective_decision(layers, action, target, roles, separator))
+            for target in wanted
+        ]
         return verdicts, layers
 
     async def _roles(self, wanted: Sequence[str | None]) -> dict[str, str]:
@@ -147,10 +172,10 @@ class Guard:
                 rights.upsert_rule(content, rights.Rule(action, rights.ALLOW, target))
         rights.save(path, content)
 
-    def _record(self, action: str, verdicts: list[rights.Verdict], recipients: Sequence[str],
-                outcome: str) -> None:
-        journal.record(self.config, self.session_id, action,
-                       verdicts, recipients, outcome)
+    def _record(
+        self, action: str, verdicts: list[rights.Verdict], recipients: Sequence[str], outcome: str
+    ) -> None:
+        journal.record(self.config, self.session_id, action, verdicts, recipients, outcome)
 
 
 def _hint(action: str, session_id: str) -> str:

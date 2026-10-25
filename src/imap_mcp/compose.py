@@ -1,4 +1,5 @@
 """Outgoing messages: headers, text and HTML bodies, attachments and quoted replies."""
+
 from __future__ import annotations
 
 import mimetypes
@@ -26,18 +27,15 @@ def copy_attachments(source: Message, target: EmailMessage, attachments: list[At
     for attachment in attachments:
         part = get_part(source, attachment.index)
         if part is not None:
-            add_bytes(target, payload_bytes(part),
-                      attachment.content_type, attachment.filename)
+            add_bytes(target, payload_bytes(part), attachment.content_type, attachment.filename)
 
 
 def attach_files(msg: EmailMessage, paths: list[str] | None) -> None:
     for raw_path in paths or []:
         path = Path(raw_path).expanduser()
         if not path.is_file():
-            raise MailError(
-                f"Attachment not found: {raw_path}", code="not_found")
-        content_type = mimetypes.guess_type(
-            path.name)[0] or "application/octet-stream"
+            raise MailError(f"Attachment not found: {raw_path}", code="not_found")
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         add_bytes(msg, path.read_bytes(), content_type, path.name)
 
 

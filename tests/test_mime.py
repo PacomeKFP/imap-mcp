@@ -1,4 +1,5 @@
 """MIME helpers on small in-code RFC 822 samples."""
+
 from __future__ import annotations
 
 from email.message import EmailMessage
@@ -21,10 +22,16 @@ def test_all_recipients_keeps_to_when_cc_and_bcc_are_missing() -> None:
 
 
 def test_all_recipients_collects_to_cc_and_bcc() -> None:
-    msg = _message(To="Alice <alice@example.org>, bob@example.org",
-                   Cc="carol@example.org", Bcc="dave@example.org")
+    msg = _message(
+        To="Alice <alice@example.org>, bob@example.org",
+        Cc="carol@example.org",
+        Bcc="dave@example.org",
+    )
     assert mime.all_recipients(msg) == [
-        "alice@example.org", "bob@example.org", "carol@example.org", "dave@example.org",
+        "alice@example.org",
+        "bob@example.org",
+        "carol@example.org",
+        "dave@example.org",
     ]
 
 
@@ -33,22 +40,30 @@ def test_all_recipients_empty_when_no_recipient_header() -> None:
 
 
 def test_reply_target_keeps_every_reply_to_address_without_duplicates() -> None:
-    original = _message(Reply_To="Ann <ann@example.org>, Ben <BEN@example.org>, ann@EXAMPLE.org",
-                        From="sender@example.org")
+    original = _message(
+        Reply_To="Ann <ann@example.org>, Ben <BEN@example.org>, ann@EXAMPLE.org",
+        From="sender@example.org",
+    )
     assert mime.reply_target(original, reply_all=False, me="me@example.org") == (
-        ["ann@example.org", "BEN@example.org"], [])
+        ["ann@example.org", "BEN@example.org"],
+        [],
+    )
 
 
 def test_reply_target_falls_back_to_from() -> None:
     original = _message(From="Sender <sender@example.org>")
     assert mime.reply_target(original, reply_all=False, me="me@example.org") == (
-        ["sender@example.org"], [])
+        ["sender@example.org"],
+        [],
+    )
 
 
 def test_reply_all_excludes_me_and_repeated_recipients() -> None:
-    original = _message(From="sender@example.org",
-                        To="Me <ME@example.org>, carol@example.org",
-                        Cc="sender@example.org, Dave <dave@example.org>, carol@EXAMPLE.org")
+    original = _message(
+        From="sender@example.org",
+        To="Me <ME@example.org>, carol@example.org",
+        Cc="sender@example.org, Dave <dave@example.org>, carol@EXAMPLE.org",
+    )
     to, cc = mime.reply_target(original, reply_all=True, me="me@example.org")
     assert to == ["sender@example.org"]
     assert cc == ["carol@example.org", "dave@example.org"]
@@ -62,7 +77,9 @@ def test_sort_key_orders_across_time_zones() -> None:
 
 
 def test_sort_key_reads_rfc2822_and_treats_naive_as_utc() -> None:
-    assert mime.sort_key("Mon, 01 Jan 2024 10:00:00 +0200") == mime.sort_key("2024-01-01T08:00:00+00:00")
+    assert mime.sort_key("Mon, 01 Jan 2024 10:00:00 +0200") == mime.sort_key(
+        "2024-01-01T08:00:00+00:00"
+    )
     assert mime.sort_key("2024-01-01T08:00:00") == mime.sort_key("2024-01-01T08:00:00+00:00")
 
 

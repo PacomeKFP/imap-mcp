@@ -1,4 +1,5 @@
 """Send tools: a failure after SMTP delivery must become a warning, never an exception."""
+
 from __future__ import annotations
 
 import asyncio
@@ -129,6 +130,7 @@ IMAP_FAILURES: list[Callable[[], BaseException]] = [
 
 # send_mail
 
+
 def test_send_mail_success_has_no_warnings(mail: FakeMail) -> None:
     result = _send_mail()
     assert result["sent"] is True
@@ -144,8 +146,9 @@ def test_send_mail_without_copy_skips_sent(mail: FakeMail) -> None:
 
 
 @pytest.mark.parametrize("make_error", IMAP_FAILURES)
-def test_send_mail_copy_failure_returns_warning(mail: FakeMail,
-                                                make_error: Callable[[], BaseException]) -> None:
+def test_send_mail_copy_failure_returns_warning(
+    mail: FakeMail, make_error: Callable[[], BaseException]
+) -> None:
     mail.fail["append"] = make_error()
     result = _send_mail()
     assert result["sent"] is True
@@ -171,6 +174,7 @@ def test_send_mail_rejects_missing_recipients(mail: FakeMail) -> None:
 
 # send_draft
 
+
 def test_send_draft_success_trashes_and_copies(mail: FakeMail) -> None:
     result = _send_draft()
     assert result["sent"] is True
@@ -181,7 +185,8 @@ def test_send_draft_success_trashes_and_copies(mail: FakeMail) -> None:
 
 @pytest.mark.parametrize("make_error", IMAP_FAILURES)
 def test_send_draft_trash_failure_still_copies_to_sent(
-        mail: FakeMail, make_error: Callable[[], BaseException]) -> None:
+    mail: FakeMail, make_error: Callable[[], BaseException]
+) -> None:
     mail.fail["move"] = make_error()
     result = _send_draft()
     assert result["sent"] is True
@@ -208,6 +213,7 @@ def test_send_draft_smtp_failure_propagates_and_moves_nothing(mail: FakeMail) ->
 
 # reply_mail
 
+
 def test_reply_mail_send_success_marks_answered(mail: FakeMail) -> None:
     result = _reply_mail()
     assert result["sent"] is True
@@ -218,7 +224,8 @@ def test_reply_mail_send_success_marks_answered(mail: FakeMail) -> None:
 
 @pytest.mark.parametrize("make_error", IMAP_FAILURES)
 def test_reply_mail_mark_answered_failure_returns_warning(
-        mail: FakeMail, make_error: Callable[[], BaseException]) -> None:
+    mail: FakeMail, make_error: Callable[[], BaseException]
+) -> None:
     mail.fail["store"] = make_error()
     result = _reply_mail()
     assert result["sent"] is True
@@ -243,6 +250,7 @@ def test_reply_mail_smtp_failure_propagates(mail: FakeMail) -> None:
 
 # forward_mail
 
+
 def test_forward_mail_send_success_has_no_warnings(mail: FakeMail) -> None:
     result = _forward_mail()
     assert result["sent"] is True
@@ -252,7 +260,8 @@ def test_forward_mail_send_success_has_no_warnings(mail: FakeMail) -> None:
 
 @pytest.mark.parametrize("make_error", IMAP_FAILURES)
 def test_forward_mail_copy_failure_returns_warning(
-        mail: FakeMail, make_error: Callable[[], BaseException]) -> None:
+    mail: FakeMail, make_error: Callable[[], BaseException]
+) -> None:
     mail.fail["append"] = make_error()
     result = _forward_mail()
     assert result["sent"] is True

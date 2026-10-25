@@ -1,4 +1,5 @@
 """Helpers shared by the tool modules: loading, storing and delivering messages."""
+
 from __future__ import annotations
 
 import imaplib

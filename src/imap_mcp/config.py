@@ -1,4 +1,5 @@
 """Configuration read from environment variables, and credentials (variables or keyring)."""
+
 from __future__ import annotations
 
 import os
@@ -29,7 +30,11 @@ def _int(name: str, default: str) -> int:
 
 
 def _user_config_dir() -> Path:
-    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    base = (
+        os.environ.get("APPDATA")
+        or os.environ.get("XDG_CONFIG_HOME")
+        or str(Path.home() / ".config")
+    )
     return Path(base) / SERVICE
 
 
@@ -56,8 +61,9 @@ def load_settings() -> Settings:
         smtp_host=os.environ.get("MAIL_SMTP_HOST", "").strip() or imap_host,
         smtp_port=_int("MAIL_SMTP_PORT", "587"),
         read_only=_flag("MAIL_READONLY"),
-        download_dir=Path(os.environ.get("MAIL_DOWNLOAD_DIR")
-                          or Path.home() / "Downloads" / SERVICE),
+        download_dir=Path(
+            os.environ.get("MAIL_DOWNLOAD_DIR") or Path.home() / "Downloads" / SERVICE
+        ),
         max_body=_int("MAIL_MAX_BODY", "20000"),
         agent_trash=os.environ.get("MAIL_AGENT_TRASH", "").strip() or "Agent Trash",
         project_dir=Path(os.environ.get("MAIL_PROJECT_DIR") or Path.cwd()),
@@ -83,7 +89,8 @@ def get_credentials() -> tuple[str, str]:
         user, password = _from_keyring(user, password)
     if not (user and password):
         raise ConfigError(
-            "Credentials missing: set MAIL_USER and MAIL_PASSWORD, or run `imap-mcp setup`.")
+            "Credentials missing: set MAIL_USER and MAIL_PASSWORD, or run `imap-mcp setup`."
+        )
     return user, password
 
 

@@ -1,4 +1,5 @@
 """IMAP security: certificate verification by default, and the MAIL_TLS_INSECURE opt-out."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -38,8 +39,9 @@ def captured(monkeypatch):
 
     monkeypatch.setattr(imap, "Connection", fake_connection)
     monkeypatch.setattr(imap, "get_credentials", lambda: ("user@example.com", "secret"))
-    monkeypatch.setattr(imap, "settings",
-                        dataclasses.replace(base_settings, imap_host="imap.example.com"))
+    monkeypatch.setattr(
+        imap, "settings", dataclasses.replace(base_settings, imap_host="imap.example.com")
+    )
     return holder
 
 
@@ -81,8 +83,9 @@ def test_session_refreshes_capabilities_after_login(monkeypatch):
     conn = PostLoginCapConn([b"IMAP4rev1", b"MOVE", b"UIDPLUS"])
     monkeypatch.setattr(imap, "Connection", lambda *a, **k: conn)
     monkeypatch.setattr(imap, "get_credentials", lambda: ("user@example.com", "secret"))
-    monkeypatch.setattr(imap, "settings",
-                        dataclasses.replace(base_settings, imap_host="imap.example.com"))
+    monkeypatch.setattr(
+        imap, "settings", dataclasses.replace(base_settings, imap_host="imap.example.com")
+    )
     with imap.session():
         assert conn.capability_calls == 1
         assert imap.has_capability(conn, "MOVE")
@@ -93,8 +96,9 @@ def test_session_keeps_known_capabilities_when_refresh_fails(monkeypatch):
     conn = PostLoginCapConn(None)
     monkeypatch.setattr(imap, "Connection", lambda *a, **k: conn)
     monkeypatch.setattr(imap, "get_credentials", lambda: ("user@example.com", "secret"))
-    monkeypatch.setattr(imap, "settings",
-                        dataclasses.replace(base_settings, imap_host="imap.example.com"))
+    monkeypatch.setattr(
+        imap, "settings", dataclasses.replace(base_settings, imap_host="imap.example.com")
+    )
     with imap.session():
         assert not imap.has_capability(conn, "MOVE")
         assert imap.has_capability(conn, "IMAP4rev1")
@@ -163,12 +167,15 @@ def test_quote_keeps_plain_and_accented_folder_names():
     assert imap.quote("Été") == '"' + imap.utf7.encode("Été") + '"'
 
 
-@pytest.mark.parametrize("criteria", [
-    ["FROM", '"a\\"b"'],
-    ["SUBJECT", imap.search_literal('back\\slash "quoted"')],
-    ["HEADER", "Message-ID", '"<id@example.com>"'],
-    ["SINCE", "01-Jan-2024", "UNSEEN"],
-])
+@pytest.mark.parametrize(
+    "criteria",
+    [
+        ["FROM", '"a\\"b"'],
+        ["SUBJECT", imap.search_literal('back\\slash "quoted"')],
+        ["HEADER", "Message-ID", '"<id@example.com>"'],
+        ["SINCE", "01-Jan-2024", "UNSEEN"],
+    ],
+)
 def test_ascii_criteria_are_sent_unchanged(criteria):
     conn = SearchConn()
     imap.search_uids(conn, criteria)
@@ -212,12 +219,15 @@ def test_non_ascii_value_without_keyword_is_refused():
     assert info.value.code == "invalid_argument"
 
 
-@pytest.mark.parametrize("criteria", [
-    ["HEADER", "X Bad Field", '"v"'],
-    ["SUBJECT", "unquoted value"],
-    ["SUBJECT", "{5}"],
-    ["SUBJECT", '"unterminated'],
-])
+@pytest.mark.parametrize(
+    "criteria",
+    [
+        ["HEADER", "X Bad Field", '"v"'],
+        ["SUBJECT", "unquoted value"],
+        ["SUBJECT", "{5}"],
+        ["SUBJECT", '"unterminated'],
+    ],
+)
 def test_malformed_criteria_are_refused(criteria):
     conn = SearchConn()
     with pytest.raises(MailError) as info:

@@ -1,4 +1,5 @@
 """Parsing and header helpers for raw messages."""
+
 from __future__ import annotations
 
 import email
@@ -48,8 +49,7 @@ def emails(value: object) -> list[str]:
 def _bare_addresses(*values: object) -> list[str]:
     """Addresses of several header values; each value is parsed on its own, since
     getaddresses over a list drops entries when a value is empty."""
-    return [addr for value in values if value
-            for _, addr in getaddresses([str(value)]) if addr]
+    return [addr for value in values if value for _, addr in getaddresses([str(value)]) if addr]
 
 
 def _unique(addresses: Iterable[str]) -> list[str]:

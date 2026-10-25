@@ -1,4 +1,5 @@
 """Draft and send tools. Drafts are reversible; sending is not."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,17 +40,31 @@ class DraftEdits:
     attachments: list[str] | None = None
 
 
-def _build_message(to: list[str], subject: str, body: str, cc: list[str] | None,
-                   bcc: list[str] | None, html: str | None,
-                   attachments: list[str] | None) -> EmailMessage:
-    return build_message(sender(), to, subject, body, cc=cc, bcc=bcc, html=html,
-                         attachments=attachments)
+def _build_message(
+    to: list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None,
+    bcc: list[str] | None,
+    html: str | None,
+    attachments: list[str] | None,
+) -> EmailMessage:
+    return build_message(
+        sender(), to, subject, body, cc=cc, bcc=bcc, html=html, attachments=attachments
+    )
 
 
 @mcp.tool()
-async def create_draft(ctx: Context, to: list[str], subject: str, body: str,
-                       cc: list[str] | None = None, bcc: list[str] | None = None,
-                       html: str | None = None, attachments: list[str] | None = None) -> dict[str, Any]:
+async def create_draft(
+    ctx: Context,
+    to: list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    html: str | None = None,
+    attachments: list[str] | None = None,
+) -> dict[str, Any]:
     """Create a draft in Drafts. Attachments are local file paths. Returns the draft uid."""
     await authorize_attachments(ctx, attachments)
     await guard.authorize(ctx, "mail.create", targets=[rights.DRAFTS])
@@ -59,10 +74,16 @@ async def create_draft(ctx: Context, to: list[str], subject: str, body: str,
 
 
 @mcp.tool()
-async def update_draft(ctx: Context, uid: str, to: list[str] | None = None,
-                       subject: str | None = None, body: str | None = None,
-                       cc: list[str] | None = None, bcc: list[str] | None = None,
-                       attachments: list[str] | None = None) -> dict[str, Any]:
+async def update_draft(
+    ctx: Context,
+    uid: str,
+    to: list[str] | None = None,
+    subject: str | None = None,
+    body: str | None = None,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    attachments: list[str] | None = None,
+) -> dict[str, Any]:
     """Edit a draft: given fields replace the old values, others are kept.
     Existing attachments are kept; `attachments` adds new ones.
     The old version goes to the Agent Trash. Returns the new uid."""
@@ -91,8 +112,7 @@ def _revised_draft(old: EmailMessage, edits: DraftEdits) -> EmailMessage:
     msg = build_message(
         sender(),
         edits.to if edits.to is not None else mime.emails(old["To"]),
-        edits.subject if edits.subject is not None else mime.decode_text(
-            old["Subject"]),
+        edits.subject if edits.subject is not None else mime.decode_text(old["Subject"]),
         edits.body if edits.body is not None else current.text,
         cc=edits.cc if edits.cc is not None else mime.emails(old["Cc"]),
         bcc=edits.bcc if edits.bcc is not None else mime.emails(old["Bcc"]),
@@ -106,10 +126,17 @@ def _revised_draft(old: EmailMessage, edits: DraftEdits) -> EmailMessage:
 
 
 @mcp.tool()
-async def send_mail(ctx: Context, to: list[str], subject: str, body: str,
-                    cc: list[str] | None = None, bcc: list[str] | None = None,
-                    html: str | None = None, attachments: list[str] | None = None,
-                    save_copy: bool = True) -> dict[str, Any]:
+async def send_mail(
+    ctx: Context,
+    to: list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    html: str | None = None,
+    attachments: list[str] | None = None,
+    save_copy: bool = True,
+) -> dict[str, Any]:
     """Send a mail over SMTP and keep a copy in Sent.
     Irreversible: check recipients and content first."""
     if not (to or cc or bcc):
@@ -120,8 +147,8 @@ async def send_mail(ctx: Context, to: list[str], subject: str, body: str,
     await guard.authorize(ctx, "mail.send", recipients=recipients)
     warnings = await in_thread(deliver, msg, recipients, save_copy)
     return with_warnings(
-        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients},
-        warnings)
+        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients}, warnings
+    )
 
 
 @mcp.tool()
@@ -133,8 +160,8 @@ async def send_draft(ctx: Context, uid: str, save_copy: bool = True) -> dict[str
     await guard.authorize(ctx, "mail.delete", targets=[rights.DRAFTS])
     warnings = await in_thread(_send_draft, msg, recipients, drafts, uid, save_copy)
     return with_warnings(
-        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients},
-        warnings)
+        {"sent": True, "message_id": str(msg["Message-ID"]), "recipients": recipients}, warnings
+    )
 
 
 def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
@@ -148,13 +175,13 @@ def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
     return msg, recipients, drafts
 
 
-def _send_draft(msg: EmailMessage, recipients: list[str], drafts: str, uid: str,
-                save_copy: bool) -> list[str]:
+def _send_draft(
+    msg: EmailMessage, recipients: list[str], drafts: str, uid: str, save_copy: bool
+) -> list[str]:
     """Send the draft, then trash it and copy it to Sent. Returns the post-send warnings."""
     smtp.send(msg, recipients)
     warnings: list[str] = []
-    after_send(warnings, "moving the draft to the Agent Trash",
-               lambda: _move_to_trash(drafts, uid))
+    after_send(warnings, "moving the draft to the Agent Trash", lambda: _move_to_trash(drafts, uid))
     if save_copy:
         after_send(warnings, "saving a copy to Sent", lambda: save_to_sent(msg))
     return warnings

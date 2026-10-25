@@ -1,4 +1,5 @@
 """Approval prompt: asks the user through the MCP client and describes what is requested."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -20,8 +21,9 @@ def describe_targets(targets: Sequence[str | None]) -> str:
     return ", ".join(named) if named else "any target"
 
 
-def describe_request(action: str, asks: Sequence[str | None], recipients: Sequence[str],
-                     detail: str) -> str:
+def describe_request(
+    action: str, asks: Sequence[str | None], recipients: Sequence[str], detail: str
+) -> str:
     if action == "mail.send" and recipients:
         shown = ", ".join(recipients[:LISTED_RECIPIENTS])
         if len(recipients) > LISTED_RECIPIENTS:
@@ -30,12 +32,14 @@ def describe_request(action: str, asks: Sequence[str | None], recipients: Sequen
     else:
         subject = f"{action} on {describe_targets(asks)}"
     suffix = f" ({detail})" if detail else ""
-    return (f"Approval needed: {subject}{suffix}. "
-            "Choose once, session (this session only), or refuse.")
+    return (
+        f"Approval needed: {subject}{suffix}. Choose once, session (this session only), or refuse."
+    )
 
 
-async def ask_user(ctx: Context, action: str, asks: Sequence[str | None],
-                   recipients: Sequence[str], detail: str) -> str | None:
+async def ask_user(
+    ctx: Context, action: str, asks: Sequence[str | None], recipients: Sequence[str], detail: str
+) -> str | None:
     """Return 'once', 'session' or 'refuse'; None when the client cannot ask."""
     message = describe_request(action, asks, recipients, detail)
     try:

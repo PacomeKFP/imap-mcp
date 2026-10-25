@@ -1,4 +1,5 @@
 """Message bodies and attachments: text and HTML reading, attachment lookup, excerpts."""
+
 from __future__ import annotations
 
 import re
@@ -8,9 +9,21 @@ from html.parser import HTMLParser
 
 from .mime import decode_text
 
-_BLOCK_TAGS = frozenset({
-    "p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "table", "blockquote",
-})
+_BLOCK_TAGS = frozenset(
+    {
+        "p",
+        "div",
+        "br",
+        "tr",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "table",
+        "blockquote",
+    }
+)
 _SKIP_TAGS = frozenset({"script", "style", "head"})
 
 
@@ -91,8 +104,7 @@ def read_content(msg: Message) -> Content:
         if part.get_filename() or part.get_content_disposition() == "attachment":
             payload = payload_bytes(part)
             name = decode_text(part.get_filename()) or f"part-{index}"
-            attachments.append(Attachment(
-                index, name, content_type, len(payload)))
+            attachments.append(Attachment(index, name, content_type, len(payload)))
         elif content_type == "text/plain" and not text:
             text = _text_of(part)
         elif content_type == "text/html" and not html:

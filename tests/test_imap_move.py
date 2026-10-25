@@ -1,4 +1,5 @@
 """IMAP move path: UID MOVE, COPY + UID EXPUNGE fallback, refusal without UIDPLUS, and no unscoped purge."""
+
 from __future__ import annotations
 
 import re

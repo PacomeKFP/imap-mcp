@@ -1,4 +1,5 @@
 """Hardening: alias equivalence, session hints, UTC timestamps, atomic saves and recipient validation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -58,8 +59,10 @@ def test_deny_on_alias_blocks_real_name_target() -> None:
 
 
 def test_strictest_explicit_verdict_wins_across_names() -> None:
-    layers = layer(rights.Rule("mail.read", rights.ASK, "Drafts"),
-                   rights.Rule("mail.read", rights.DENY, "@drafts"))
+    layers = layer(
+        rights.Rule("mail.read", rights.ASK, "Drafts"),
+        rights.Rule("mail.read", rights.DENY, "@drafts"),
+    )
     assert effective_decision(layers, "mail.read", "Drafts", ROLES, "/")[0] == rights.DENY
 
 
@@ -68,18 +71,22 @@ def test_default_is_kept_when_no_name_has_a_rule() -> None:
     assert effective_decision([], "mail.create", "Drafts", ROLES, "/") == (rights.ASK, "default")
 
 
-def test_guard_denies_alias_when_real_name_is_denied(tmp_path: Path,
-                                                    make_settings: SettingsFactory) -> None:
+def test_guard_denies_alias_when_real_name_is_denied(
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     guard = make_guard(make_settings, tmp_path)
-    rights.save(rights.local_file(guard.config),
-                rights.RightsFile([rights.Rule("mail.read", rights.DENY, "Drafts")]))
+    rights.save(
+        rights.local_file(guard.config),
+        rights.RightsFile([rights.Rule("mail.read", rights.DENY, "Drafts")]),
+    )
     with pytest.raises(MailError) as info:
         authorize(guard, "mail.read", targets=["@drafts"])
     assert info.value.code == "denied"
 
 
-def test_guard_without_folder_targets_never_resolves_roles(tmp_path: Path, make_settings: SettingsFactory,
-                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+def test_guard_without_folder_targets_never_resolves_roles(
+    tmp_path: Path, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     guard = Guard(make_settings(tmp_path), SESSION)
     guard.separator = "/"
 
@@ -92,11 +99,15 @@ def test_guard_without_folder_targets_never_resolves_roles(tmp_path: Path, make_
     assert guard.roles is None
 
 
-@pytest.mark.parametrize("error", [MailError("down", code="imap"), OSError("refused"),
-                                   imaplib.IMAP4.error("bye")])
-def test_failed_role_lookup_falls_back_and_is_retried(tmp_path: Path, make_settings: SettingsFactory,
-                                                      monkeypatch: pytest.MonkeyPatch,
-                                                      error: Exception) -> None:
+@pytest.mark.parametrize(
+    "error", [MailError("down", code="imap"), OSError("refused"), imaplib.IMAP4.error("bye")]
+)
+def test_failed_role_lookup_falls_back_and_is_retried(
+    tmp_path: Path,
+    make_settings: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
     guard = Guard(make_settings(tmp_path), SESSION)
     guard.separator = "/"
     calls: list[int] = []
@@ -112,8 +123,9 @@ def test_failed_role_lookup_falls_back_and_is_retried(tmp_path: Path, make_setti
     assert len(calls) == 2
 
 
-def test_roles_are_resolved_once_and_cached(tmp_path: Path, make_settings: SettingsFactory,
-                                            monkeypatch: pytest.MonkeyPatch) -> None:
+def test_roles_are_resolved_once_and_cached(
+    tmp_path: Path, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     guard = Guard(make_settings(tmp_path), SESSION)
     guard.separator = "/"
     calls: list[int] = []
@@ -136,7 +148,9 @@ class NoElicitation:
         raise RuntimeError("elicitation not supported")
 
 
-def test_permission_hint_carries_the_current_session(tmp_path: Path, make_settings: SettingsFactory) -> None:
+def test_permission_hint_carries_the_current_session(
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     guard = make_guard(make_settings, tmp_path)
     with pytest.raises(MailError) as info:
         asyncio.run(guard.authorize(NoElicitation(), "mail.delete", targets=["INBOX"]))
@@ -146,9 +160,11 @@ def test_permission_hint_carries_the_current_session(tmp_path: Path, make_settin
 
 def test_hint_names_the_session_for_folder_and_send_rules() -> None:
     assert permissions._hint("mail.move", SESSION) == (
-        f"imap-mcp rights allow mail.move [--folder FOLDER] --session {SESSION}")
+        f"imap-mcp rights allow mail.move [--folder FOLDER] --session {SESSION}"
+    )
     assert permissions._hint("mail.send", SESSION) == (
-        f"imap-mcp rights allow mail.send --recipient ADDRESS --session {SESSION}")
+        f"imap-mcp rights allow mail.send --recipient ADDRESS --session {SESSION}"
+    )
 
 
 def test_session_ids_use_utc_and_the_expected_format() -> None:
@@ -158,10 +174,14 @@ def test_session_ids_use_utc_and_the_expected_format() -> None:
     assert abs(datetime.now(timezone.utc) - stamp) < timedelta(minutes=1)
 
 
-def test_journal_timestamps_are_timezone_aware(tmp_path: Path, make_settings: SettingsFactory) -> None:
+def test_journal_timestamps_are_timezone_aware(
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     config = make_settings(tmp_path)
     journal.record(config, SESSION, "mail.move", [("INBOX", rights.ASK, "default")], [], "refused")
-    entry = json.loads((rights.session_dir(config, SESSION) / rights.JOURNAL_FILE).read_text("utf-8"))
+    entry = json.loads(
+        (rights.session_dir(config, SESSION) / rights.JOURNAL_FILE).read_text("utf-8")
+    )
     assert datetime.fromisoformat(entry["time"]).utcoffset() == timedelta(0)
 
 
@@ -172,7 +192,9 @@ def test_save_leaves_no_temporary_file(tmp_path: Path) -> None:
     assert not path.with_suffix(".tmp").exists()
 
 
-def test_failed_save_keeps_the_previous_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_save_keeps_the_previous_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "rights.toml"
     previous = [rights.Rule("mail.move", rights.ALLOW, "Clients")]
     rights.save(path, rights.RightsFile(previous))
@@ -198,17 +220,23 @@ class ElicitingContext:
         raise self.error
 
 
-@pytest.mark.parametrize("error", [MCPError(-32601, "elicitation unsupported"),
-                                   RuntimeError("test double without elicitation")],
-                         ids=["mcp-error", "runtime-error"])
+@pytest.mark.parametrize(
+    "error",
+    [MCPError(-32601, "elicitation unsupported"), RuntimeError("test double without elicitation")],
+    ids=["mcp-error", "runtime-error"],
+)
 def test_clients_that_cannot_elicit_map_to_none(error: Exception) -> None:
-    result = asyncio.run(approval.ask_user(ElicitingContext(error), "mail.delete", ["INBOX"], [], ""))
+    result = asyncio.run(
+        approval.ask_user(ElicitingContext(error), "mail.delete", ["INBOX"], [], "")
+    )
     assert result is None
 
 
 def test_unexpected_elicitation_errors_propagate() -> None:
     with pytest.raises(KeyError):
-        asyncio.run(approval.ask_user(ElicitingContext(KeyError("bug")), "mail.delete", ["INBOX"], [], ""))
+        asyncio.run(
+            approval.ask_user(ElicitingContext(KeyError("bug")), "mail.delete", ["INBOX"], [], "")
+        )
 
 
 def parse(*argv: str) -> Namespace:
@@ -217,10 +245,24 @@ def parse(*argv: str) -> Namespace:
     return parser.parse_args(["rights", *argv])
 
 
-@pytest.mark.parametrize("entry", ["bob", "@", "@@x.org", "a@b@c.org", "@b@c", "a@", "a@@b.org",
-                                   "bob@x.org@", "@a b.org", "a @b.org"])
-def test_invalid_recipient_entries_are_rejected(tmp_path: Path, make_settings: SettingsFactory,
-                                                entry: str) -> None:
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "bob",
+        "@",
+        "@@x.org",
+        "a@b@c.org",
+        "@b@c",
+        "a@",
+        "a@@b.org",
+        "bob@x.org@",
+        "@a b.org",
+        "a @b.org",
+    ],
+)
+def test_invalid_recipient_entries_are_rejected(
+    tmp_path: Path, make_settings: SettingsFactory, entry: str
+) -> None:
     config = make_settings(tmp_path)
     assert rights_cli.run(parse("allow", "mail.send", "--recipient", entry, "--local"), config) == 1
     assert not rights.local_file(config).exists()
@@ -233,9 +275,18 @@ def test_invalid_recipient_error_has_invalid_argument_code() -> None:
 
 
 def test_recipient_entries_are_stored_lowercase_and_revoked_case_insensitively(
-        tmp_path: Path, make_settings: SettingsFactory) -> None:
+    tmp_path: Path, make_settings: SettingsFactory
+) -> None:
     config = make_settings(tmp_path)
-    grant = parse("allow", "mail.send", "--recipient", "Anna@Client.COM", "--recipient", "@Client.com", "--local")
+    grant = parse(
+        "allow",
+        "mail.send",
+        "--recipient",
+        "Anna@Client.COM",
+        "--recipient",
+        "@Client.com",
+        "--local",
+    )
     assert rights_cli.run(grant, config) == 0
     assert rights.load(rights.local_file(config)).recipients == ["anna@client.com", "@client.com"]
     revoke = parse("revoke", "mail.send", "--recipient", "ANNA@client.com", "--local")

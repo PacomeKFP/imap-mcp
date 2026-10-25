@@ -1,4 +1,5 @@
 """SMTP delivery: STARTTLS (port 587, default) or implicit SSL (port 465)."""
+
 from __future__ import annotations
 
 import smtplib
@@ -15,8 +16,7 @@ def send(message: EmailMessage, recipients: list[str]) -> None:
     implicit_tls = settings.smtp_port == 465
     server: smtplib.SMTP
     if implicit_tls:
-        server = smtplib.SMTP_SSL(
-            host, settings.smtp_port, context=context, timeout=TIMEOUT)
+        server = smtplib.SMTP_SSL(host, settings.smtp_port, context=context, timeout=TIMEOUT)
     else:
         server = smtplib.SMTP(host, settings.smtp_port, timeout=TIMEOUT)
     with server as smtp:

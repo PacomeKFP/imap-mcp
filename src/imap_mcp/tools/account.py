@@ -1,4 +1,5 @@
 """Account and folder tools."""
+
 from __future__ import annotations
 
 import imaplib
@@ -39,12 +40,14 @@ def _list_folders() -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for folder in imap.list_folders(conn):
             counts = imap.folder_status(conn, folder.name)
-            result.append({
-                "folder": folder.name,
-                "role": folder.role,
-                "messages": counts[0] if counts else None,
-                "unread": counts[1] if counts else None,
-            })
+            result.append(
+                {
+                    "folder": folder.name,
+                    "role": folder.role,
+                    "messages": counts[0] if counts else None,
+                    "unread": counts[1] if counts else None,
+                }
+            )
     return result
 
 

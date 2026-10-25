@@ -1,4 +1,5 @@
 """Access rights: rules, rights files and decisions. Reads and writes local files only."""
+
 from __future__ import annotations
 
 import json
@@ -22,19 +23,42 @@ DENY = "deny"
 DECISIONS = frozenset({ALLOW, ASK, DENY})
 _STRICTNESS = {DENY: 0, ASK: 1, ALLOW: 2}
 
-ACTIONS = frozenset({
-    "account.read",
-    "folder.read", "folder.create", "folder.update",
-    "mail.read", "mail.create", "mail.update", "mail.move", "mail.delete", "mail.send",
-    "file.read", "file.download",
-})
-WRITE_ACTIONS = frozenset({
-    "folder.create", "folder.update",
-    "mail.create", "mail.update", "mail.move", "mail.delete", "mail.send",
-})
-_ALLOWED_BY_DEFAULT = frozenset({
-    "account.read", "folder.read", "folder.create", "mail.read", "mail.update",
-})
+ACTIONS = frozenset(
+    {
+        "account.read",
+        "folder.read",
+        "folder.create",
+        "folder.update",
+        "mail.read",
+        "mail.create",
+        "mail.update",
+        "mail.move",
+        "mail.delete",
+        "mail.send",
+        "file.read",
+        "file.download",
+    }
+)
+WRITE_ACTIONS = frozenset(
+    {
+        "folder.create",
+        "folder.update",
+        "mail.create",
+        "mail.update",
+        "mail.move",
+        "mail.delete",
+        "mail.send",
+    }
+)
+_ALLOWED_BY_DEFAULT = frozenset(
+    {
+        "account.read",
+        "folder.read",
+        "folder.create",
+        "mail.read",
+        "mail.update",
+    }
+)
 
 # Pseudo-targets for special folders and locations. Rules match them by exact name.
 DRAFTS = "@drafts"
@@ -64,8 +88,7 @@ class RightsFile:
 Layer = tuple[str, RightsFile]
 Verdict = tuple[str | None, str, str]  # target, decision, source
 
-_ALLOWED_ON_TARGET = frozenset(
-    {("mail.create", DRAFTS), ("file.download", DOWNLOADS)})
+_ALLOWED_ON_TARGET = frozenset({("mail.create", DRAFTS), ("file.download", DOWNLOADS)})
 
 
 def default_decision(action: str, target: str | None) -> str:
@@ -74,17 +97,23 @@ def default_decision(action: str, target: str | None) -> str:
     return ASK
 
 
-def decide(layers: Sequence[Layer], action: str, target: str | None,
-           separator: str = "/") -> tuple[str, str]:
+def decide(
+    layers: Sequence[Layer], action: str, target: str | None, separator: str = "/"
+) -> tuple[str, str]:
     """Return (decision, source) for one action on one target.
     The first layer with a match wins."""
     for source, content in layers:
-        found = [rule for rule in content.rules
-                 if rule.action == action and _matches(rule.folder, target, separator)]
+        found = [
+            rule
+            for rule in content.rules
+            if rule.action == action and _matches(rule.folder, target, separator)
+        ]
         if found:
             best = max(_specificity(rule) for rule in found)
-            decision = min((rule.decision for rule in found if _specificity(rule) == best),
-                           key=_STRICTNESS.__getitem__)
+            decision = min(
+                (rule.decision for rule in found if _specificity(rule) == best),
+                key=_STRICTNESS.__getitem__,
+            )
             return decision, source
     return default_decision(action, target), "default"
 
@@ -106,9 +135,10 @@ def load_layers(config: Settings, session_id: str | None) -> list[Layer]:
 
 def recipient_allowed(entries: Iterable[str], address: str) -> bool:
     address = address.lower()
-    return any(address == entry.lower()
-               or (entry.startswith("@") and address.endswith(entry.lower()))
-               for entry in entries)
+    return any(
+        address == entry.lower() or (entry.startswith("@") and address.endswith(entry.lower()))
+        for entry in entries
+    )
 
 
 def _specificity(rule: Rule) -> int:
@@ -149,8 +179,11 @@ def session_file(config: Settings, session_id: str) -> Path:
 
 def latest_session(config: Settings) -> str | None:
     folder = sessions_dir(config)
-    names = (sorted(entry.name for entry in folder.iterdir() if entry.is_dir())
-             if folder.is_dir() else [])
+    names = (
+        sorted(entry.name for entry in folder.iterdir() if entry.is_dir())
+        if folder.is_dir()
+        else []
+    )
     return names[-1] if names else None
 
 
@@ -187,15 +220,17 @@ def save(path: Path, content: RightsFile) -> None:
 
 def upsert_rule(content: RightsFile, rule: Rule) -> None:
     """Replace the rule for the same action and folder, or add it."""
-    content.rules = [item for item in content.rules
-                     if (item.action, item.folder) != (rule.action, rule.folder)]
+    content.rules = [
+        item for item in content.rules if (item.action, item.folder) != (rule.action, rule.folder)
+    ]
     content.rules.append(rule)
 
 
 def remove_rule(content: RightsFile, action: str, folder: str | None) -> int:
     before = len(content.rules)
-    content.rules = [item for item in content.rules
-                     if (item.action, item.folder) != (action, folder)]
+    content.rules = [
+        item for item in content.rules if (item.action, item.folder) != (action, folder)
+    ]
     return before - len(content.rules)
 
 
@@ -226,9 +261,13 @@ def _tables(data: dict[str, Any], key: str, path: Path) -> list[dict[str, Any]]:
 
 def _parse_rule(item: dict[str, Any], path: Path) -> Rule:
     action, decision, folder = item.get("action"), item.get("decision"), item.get("folder")
-    if (isinstance(action, str) and action in ACTIONS
-            and isinstance(decision, str) and decision in DECISIONS
-            and (folder is None or (isinstance(folder, str) and folder != ""))):
+    if (
+        isinstance(action, str)
+        and action in ACTIONS
+        and isinstance(decision, str)
+        and decision in DECISIONS
+        and (folder is None or (isinstance(folder, str) and folder != ""))
+    ):
         return Rule(action, decision, folder)
     raise MailError(f"Invalid rule in {path}: {item}", code="rights_invalid")
 

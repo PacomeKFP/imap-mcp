@@ -1,4 +1,5 @@
 """Guard behaviour: read-only mode, deny, ask, session memory, allowlists and the journal."""
+
 from __future__ import annotations
 
 import asyncio
@@ -22,7 +23,9 @@ GuardFactory = Callable[..., Guard]
 class FakeContext:
     """Stands in for the MCP context: answers elicitation with a fixed choice."""
 
-    def __init__(self, choice: str = "once", action: str = "accept", supported: bool = True) -> None:
+    def __init__(
+        self, choice: str = "once", action: str = "accept", supported: bool = True
+    ) -> None:
         self.choice = choice
         self.action = action
         self.supported = supported
@@ -63,10 +66,14 @@ def test_reads_are_allowed_without_question(tmp_path: Path, make_guard: GuardFac
     assert ctx.messages == []
 
 
-def test_read_only_blocks_writes_before_any_question(tmp_path: Path, make_guard: GuardFactory) -> None:
+def test_read_only_blocks_writes_before_any_question(
+    tmp_path: Path, make_guard: GuardFactory
+) -> None:
     ctx = FakeContext()
     with pytest.raises(MailError) as info:
-        authorize(make_guard(tmp_path, read_only=True), ctx, "mail.move", targets=["INBOX", "Archive"])
+        authorize(
+            make_guard(tmp_path, read_only=True), ctx, "mail.move", targets=["INBOX", "Archive"]
+        )
     assert info.value.code == "read_only"
     assert ctx.messages == []
 
@@ -109,13 +116,19 @@ def test_refusal_is_reported(tmp_path: Path, make_guard: GuardFactory) -> None:
     assert info.value.code == "refused"
 
 
-def test_client_without_elicitation_gets_a_clear_code(tmp_path: Path, make_guard: GuardFactory) -> None:
+def test_client_without_elicitation_gets_a_clear_code(
+    tmp_path: Path, make_guard: GuardFactory
+) -> None:
     with pytest.raises(MailError) as info:
-        authorize(make_guard(tmp_path), FakeContext(supported=False), "mail.delete", targets=["INBOX"])
+        authorize(
+            make_guard(tmp_path), FakeContext(supported=False), "mail.delete", targets=["INBOX"]
+        )
     assert info.value.code == "permission_required"
 
 
-def test_send_to_allowlisted_recipients_needs_no_question(tmp_path: Path, make_guard: GuardFactory) -> None:
+def test_send_to_allowlisted_recipients_needs_no_question(
+    tmp_path: Path, make_guard: GuardFactory
+) -> None:
     guard = make_guard(tmp_path)
     write_local(guard, rights.RightsFile(recipients=["@client.com"]))
     ctx = FakeContext(supported=False)
@@ -130,7 +143,9 @@ def test_send_to_other_recipients_asks(tmp_path: Path, make_guard: GuardFactory)
     assert len(ctx.messages) == 1
 
 
-def test_session_allowlist_covers_recipients_for_this_session(tmp_path: Path, make_guard: GuardFactory) -> None:
+def test_session_allowlist_covers_recipients_for_this_session(
+    tmp_path: Path, make_guard: GuardFactory
+) -> None:
     guard = make_guard(tmp_path)
     authorize(guard, FakeContext("session"), "mail.send", recipients=["x@other.org"])
     refusing = FakeContext(action="decline")

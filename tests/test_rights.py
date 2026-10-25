@@ -1,4 +1,5 @@
 """Rights resolution: defaults, layer precedence, folder matching, allowlists and rights files."""
+
 from __future__ import annotations
 
 import pytest
@@ -8,10 +9,16 @@ from imap_mcp.errors import MailError
 from imap_mcp.rights import ALLOW, ASK, DENY, RightsFile, Rule
 
 
-def layers(session: RightsFile | None = None, local: RightsFile | None = None,
-           global_: RightsFile | None = None) -> list[rights.Layer]:
-    return [("session", session or RightsFile()), ("local", local or RightsFile()),
-            ("global", global_ or RightsFile())]
+def layers(
+    session: RightsFile | None = None,
+    local: RightsFile | None = None,
+    global_: RightsFile | None = None,
+) -> list[rights.Layer]:
+    return [
+        ("session", session or RightsFile()),
+        ("local", local or RightsFile()),
+        ("global", global_ or RightsFile()),
+    ]
 
 
 def test_defaults_follow_the_table():
@@ -28,14 +35,22 @@ def test_session_beats_local_beats_global():
     allow = RightsFile([Rule("mail.move", ALLOW)])
     ask = RightsFile([Rule("mail.move", ASK)])
     assert rights.decide(layers(global_=deny), "mail.move", "INBOX") == (DENY, "global")
-    assert rights.decide(layers(local=allow, global_=deny), "mail.move", "INBOX") == (ALLOW, "local")
+    assert rights.decide(layers(local=allow, global_=deny), "mail.move", "INBOX") == (
+        ALLOW,
+        "local",
+    )
     assert rights.decide(layers(session=ask, local=allow), "mail.move", "INBOX") == (ASK, "session")
 
 
 def test_folder_rules_cover_sub_folders_and_the_most_specific_rule_wins():
-    local = RightsFile([Rule("mail.move", ALLOW, "Clients"), Rule("mail.move", DENY, "Clients/Archive")])
+    local = RightsFile(
+        [Rule("mail.move", ALLOW, "Clients"), Rule("mail.move", DENY, "Clients/Archive")]
+    )
     assert rights.decide(layers(local=local), "mail.move", "Clients/2026") == (ALLOW, "local")
-    assert rights.decide(layers(local=local), "mail.move", "Clients/Archive/2025") == (DENY, "local")
+    assert rights.decide(layers(local=local), "mail.move", "Clients/Archive/2025") == (
+        DENY,
+        "local",
+    )
     assert rights.decide(layers(local=local), "mail.move", "Clientsbis") == (ASK, "default")
 
 
@@ -66,8 +81,10 @@ def test_recipient_allowlist_matches_addresses_and_domains():
 
 def test_rights_file_round_trip(tmp_path):
     path = tmp_path / "rights.toml"
-    content = RightsFile([Rule("mail.move", ALLOW, 'Clients "é"'), Rule("file.read", ASK)],
-                         ["@client.com", "bob@x.org"])
+    content = RightsFile(
+        [Rule("mail.move", ALLOW, 'Clients "é"'), Rule("file.read", ASK)],
+        ["@client.com", "bob@x.org"],
+    )
     rights.save(path, content)
     assert rights.load(path) == content
 

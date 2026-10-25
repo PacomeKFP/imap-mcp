@@ -1,4 +1,5 @@
 """`imap-mcp rights` commands: allow, ask, deny, revoke, list, explain and prune rules."""
+
 from __future__ import annotations
 
 import argparse
@@ -59,25 +60,45 @@ def run(args: argparse.Namespace, config: Settings | None = None) -> int:
 def _rule_arguments(item: argparse.ArgumentParser) -> None:
     item.add_argument("action", choices=sorted(rights.ACTIONS))
     item.add_argument("--folder", help="folder path; its sub-folders are included")
-    item.add_argument("--recipient", action="append", default=[], metavar="ADDRESS",
-                      help="address or @domain (mail.send only, repeatable)")
-    item.add_argument("--file", metavar="PATH",
-                      help="text file with one address or @domain per line (mail.send only)")
+    item.add_argument(
+        "--recipient",
+        action="append",
+        default=[],
+        metavar="ADDRESS",
+        help="address or @domain (mail.send only, repeatable)",
+    )
+    item.add_argument(
+        "--file",
+        metavar="PATH",
+        help="text file with one address or @domain per line (mail.send only)",
+    )
 
 
 def _scope_arguments(item: argparse.ArgumentParser) -> None:
     group = item.add_mutually_exclusive_group(required=True)
-    group.add_argument("--global", dest="global_scope", action="store_true",
-                       help="user-wide, permanent")
-    group.add_argument("--local", dest="local_scope", action="store_true",
-                       help="this project, permanent")
-    group.add_argument("--session", nargs="?", const=LATEST, metavar="ID",
-                       help="this session only (ID defaults to the latest)")
+    group.add_argument(
+        "--global", dest="global_scope", action="store_true", help="user-wide, permanent"
+    )
+    group.add_argument(
+        "--local", dest="local_scope", action="store_true", help="this project, permanent"
+    )
+    group.add_argument(
+        "--session",
+        nargs="?",
+        const=LATEST,
+        metavar="ID",
+        help="this session only (ID defaults to the latest)",
+    )
 
 
 def _session_argument(item: argparse.ArgumentParser) -> None:
-    item.add_argument("--session", nargs="?", const=LATEST, metavar="ID",
-                      help="include a session (ID defaults to the latest)")
+    item.add_argument(
+        "--session",
+        nargs="?",
+        const=LATEST,
+        metavar="ID",
+        help="include a session (ID defaults to the latest)",
+    )
 
 
 def _target(args: argparse.Namespace, config: Settings) -> tuple[Path, str]:
@@ -93,8 +114,10 @@ def _session_id(config: Settings, value: str) -> str:
     if value == LATEST:
         session_id = rights.latest_session(config)
         if session_id is None:
-            raise MailError("No session folder yet: start the MCP server first, or pass --session ID.",
-                            code="no_session")
+            raise MailError(
+                "No session folder yet: start the MCP server first, or pass --session ID.",
+                code="no_session",
+            )
         return session_id
     if not rights.session_dir(config, value).is_dir():
         raise MailError(f"Unknown session: {value}", code="no_session")
@@ -116,8 +139,10 @@ def _recipient_entry(entry: str) -> str:
         local, separator, domain = value.partition("@")
         valid = bool(separator and local and domain) and "@" not in domain
     if not valid:
-        raise MailError(f"Invalid recipient entry: {entry!r} (expected address or @domain)",
-                        code="invalid_argument")
+        raise MailError(
+            f"Invalid recipient entry: {entry!r} (expected address or @domain)",
+            code="invalid_argument",
+        )
     return value
 
 
@@ -136,8 +161,9 @@ def _grant(args: argparse.Namespace, config: Settings) -> int:
     content = rights.load(path)
     if args.recipient or args.file:
         if args.action != "mail.send" or args.decision != rights.ALLOW:
-            raise MailError("Recipient entries apply to 'rights allow mail.send' only.",
-                            code="invalid_argument")
+            raise MailError(
+                "Recipient entries apply to 'rights allow mail.send' only.", code="invalid_argument"
+            )
         entries = _entries(args)
         rights.add_recipients(content, entries)
         rights.save(path, content)
