@@ -27,7 +27,8 @@ SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
     "archive": ("Archive", "Archives"),
 }
 _LIST_LINE = re.compile(
-    r'\((?P<attrs>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$')
+    r'\((?P<attrs>[^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+(?P<name>.+?)\s*$')
+_QUOTED_ESCAPE = re.compile(r"\\(.)")
 _SUMMARY_FIELDS = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])"
 _SEARCH_ATOM = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:*,\-]*")
 _SEARCH_QUOTED = re.compile(r'"(?:[^"\\\x00-\x1f\x7f]|\\[^\x00-\x1f\x7f])*"')
@@ -135,18 +136,36 @@ def has_capability(conn: Connection, name: str) -> bool:
     return name.upper() in caps
 
 
+def _list_entry(line: str, literal: bytes | None) -> Folder | None:
+    """Parse one LIST response; the name is a literal's bytes when literal is given."""
+    match = _LIST_LINE.match(line)
+    if not match:
+        return None
+    if literal is not None:
+        raw_name = literal.decode(errors="replace")
+    else:
+        raw_name = match["name"]
+        if len(raw_name) >= 2 and raw_name[0] == raw_name[-1] == '"':
+            raw_name = _QUOTED_ESCAPE.sub(r"\1", raw_name[1:-1])
+    attributes = frozenset(attr.lower() for attr in match["attrs"].split())
+    return Folder(utf7.decode(raw_name), attributes)
+
+
 def list_folders(conn: Connection) -> list[Folder]:
+    """Folders from LIST, including rows whose name arrives as a literal (imaplib gives a tuple)."""
     _, rows = conn.list()
     folders: list[Folder] = []
     for row in rows or []:
-        if not isinstance(row, bytes):
+        if isinstance(row, tuple):
+            header, literal = row[0], row[1] if len(row) > 1 else b""
+            line = header.decode(errors="replace")
+            entry = _list_entry(re.sub(r"\{\d+\}$", '""', line), literal)
+        elif isinstance(row, bytes):
+            entry = _list_entry(row.decode(errors="replace"), None)
+        else:
             continue
-        match = _LIST_LINE.match(row.decode(errors="replace"))
-        if match:
-            name = utf7.decode(match["name"].strip().strip('"'))
-            attributes = frozenset(attr.lower()
-                                   for attr in match["attrs"].split())
-            folders.append(Folder(name, attributes))
+        if entry is not None:
+            folders.append(entry)
     return folders
 
 
@@ -164,13 +183,24 @@ def special_folder(conn: Connection, role: str) -> str:
 
 
 def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
-    """(messages, unread) of a folder, or None when unavailable."""
+    """(messages, unread) of a folder, or None when unavailable.
+
+    Each count is read on its own, so the order of the STATUS items does not matter.
+    """
     status, data = conn.status(quote(folder), "(MESSAGES UNSEEN)")
-    if status != "OK" or not data or not data[0]:
+    if status != "OK" or not data:
         return None
-    match = re.search(r"MESSAGES (\d+) UNSEEN (\d+)",
-                      data[0].decode(errors="replace"))
-    return (int(match[1]), int(match[2])) if match else None
+    text = " ".join(part.decode(errors="replace") if isinstance(part, bytes)
+                    else " ".join(p.decode(errors="replace") for p in part)
+                    for part in data if part)
+    items = re.search(r"\(([^()]*)\)\s*$", text)
+    if not items:
+        return None
+    messages = re.search(r"\bMESSAGES\s+(\d+)\b", items[1])
+    unread = re.search(r"\bUNSEEN\s+(\d+)\b", items[1])
+    if not messages or not unread:
+        return None
+    return int(messages[1]), int(unread[1])
 
 
 def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
