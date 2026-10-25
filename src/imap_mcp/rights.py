@@ -87,6 +87,7 @@ DOWNLOADS = "@downloads"
 RIGHTS_FILE = "rights.toml"
 JOURNAL_FILE = "journal.jsonl"
 SESSIONS = "sessions"
+ACTIVE_FILE = "active"  # marker whose mtime is refreshed on every guarded call
 
 
 @dataclass(frozen=True, init=False)
@@ -229,15 +230,49 @@ def session_file(config: Settings, session_id: str) -> Path:
     return session_dir(config, session_id) / RIGHTS_FILE
 
 
+def touch_session(config: Settings, session_id: str) -> None:
+    """Create the session folder and refresh its active marker. Safe to call repeatedly."""
+    folder = session_dir(config, session_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / ACTIVE_FILE).touch(exist_ok=True)
+
+
+def session_activity(folder: Path) -> float:
+    """Latest modification time of a session's marker, journal or rights file.
+
+    The folder's own mtime is only used when none of those files exist.
+    """
+    times = [
+        mtime
+        for mtime in (_mtime(folder / name) for name in (ACTIVE_FILE, JOURNAL_FILE, RIGHTS_FILE))
+        if mtime is not None
+    ]
+    return max(times) if times else folder.stat().st_mtime
+
+
+def _mtime(path: Path) -> float | None:
+    """Modification time of a file, or None when it does not exist."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def session_ids(config: Settings) -> list[str]:
+    """Session ids from least to most recently active; the id breaks ties."""
+    folder = sessions_dir(config)
+    if not folder.is_dir():
+        return []
+    entries = sorted(
+        (session_activity(entry), entry.name) for entry in folder.iterdir() if entry.is_dir()
+    )
+    return [name for _, name in entries]
+
+
 def latest_session(config: Settings) -> str | None:
     """Id of the session with the most recent activity, or None when there is none."""
-    folder = sessions_dir(config)
-    names = (
-        sorted(entry.name for entry in folder.iterdir() if entry.is_dir())
-        if folder.is_dir()
-        else []
-    )
-    return names[-1] if names else None
+    ids = session_ids(config)
+    return ids[-1] if ids else None
 
 
 def load(path: Path) -> RightsFile:

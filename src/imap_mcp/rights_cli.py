@@ -17,6 +17,7 @@ from .errors import MailError
 
 LATEST = "latest"
 SECONDS_PER_DAY = 86_400
+RECENT_SECONDS = SECONDS_PER_DAY  # sessions touched this recently are never pruned
 # Plain strings: argparse shows choices in error messages, and enum reprs would be noisy.
 ACTION_CHOICES = sorted(action.value for action in rights.Action)
 
@@ -46,9 +47,14 @@ def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     item.add_argument("action", choices=ACTION_CHOICES)
     item.add_argument("--folder")
     _session_argument(item)
-    item = sub.add_parser("prune", help="delete old session folders; the newest one is kept")
+    item = sub.add_parser(
+        "prune",
+        help="delete session folders idle for --days; the newest and any active in the last 24 hours are kept",
+    )
     item.set_defaults(func=_prune)
-    item.add_argument("--days", type=int, default=30, help="minimum age in days (default: 30)")
+    item.add_argument(
+        "--days", type=int, default=30, help="minimum idle age in days, 0 or more (default: 30)"
+    )
 
 
 def run(args: argparse.Namespace, config: Settings | None = None) -> int:
@@ -224,16 +230,18 @@ def _explain(args: argparse.Namespace, config: Settings) -> int:
 
 
 def _prune(args: argparse.Namespace, config: Settings) -> int:
-    folder = rights.sessions_dir(config)
-    if not folder.is_dir():
-        print("0 session folder(s) removed.")
-        return 0
-    sessions = sorted(entry for entry in folder.iterdir() if entry.is_dir())
-    cutoff = time.time() - args.days * SECONDS_PER_DAY
+    """Delete session folders idle for --days, and never one active in the last 24 hours."""
+    if args.days < 0:
+        raise MailError("--days must be 0 or more.", code="invalid_argument")
+    ids = rights.session_ids(config)  # least to most recently active
+    now = time.time()
+    # A folder is removed only when it is older than both the retention window and 24 hours.
+    cutoff = min(now - args.days * SECONDS_PER_DAY, now - RECENT_SECONDS)
     removed = 0
-    for entry in sessions[:-1]:  # the newest folder may belong to a running server
-        if entry.stat().st_mtime < cutoff:
-            shutil.rmtree(entry)
+    for name in ids[:-1]:  # the newest folder may belong to a running server and is kept
+        path = rights.session_dir(config, name)
+        if rights.session_activity(path) < cutoff:
+            shutil.rmtree(path)
             removed += 1
     print(f"{removed} session folder(s) removed.")
     return 0

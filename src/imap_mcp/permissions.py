@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import imaplib
 import secrets
+import sys
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import datetime, timezone
@@ -98,6 +99,10 @@ class Guard:
         """Rights of every layer in precedence order, read fresh from disk."""
         return rights.load_layers(self.config, self.session_id)
 
+    def start(self) -> None:
+        """Register this session: create its folder and refresh the active marker. Idempotent."""
+        rights.touch_session(self.config, self.session_id)
+
     async def authorize(
         self,
         ctx: Context,
@@ -108,6 +113,7 @@ class Guard:
         detail: str = "",
     ) -> None:
         """Return if the action may run; else raise MailError. Asks the user if needed."""
+        self._heartbeat()
         wanted: list[str | None] = list(targets) or [None]
         if self.config.read_only and action in rights.WRITE_ACTIONS:
             denials = [rights.Verdict(t, rights.DENY, "config") for t in wanted]
@@ -141,6 +147,13 @@ class Guard:
         if choice == "session":
             self._remember(action, asks, recipients)
         self._record(action, verdicts, recipients, choice)
+
+    def _heartbeat(self) -> None:
+        """Keep the session marked active. A failure is reported but never blocks the call."""
+        try:
+            self.start()
+        except OSError as exc:
+            print(f"imap-mcp: cannot mark session {self.session_id} active: {exc}", file=sys.stderr)
 
     async def _verdicts(
         self, action: rights.Action | str, wanted: list[str | None]
