@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from imap_mcp import imap, smtp
+from imap_mcp import imap, mime, smtp
 from imap_mcp.errors import MailError
 from imap_mcp.permissions import guard
 from imap_mcp.tools import composing, replying
@@ -274,3 +274,23 @@ def test_forward_mail_smtp_failure_propagates(mail: FakeMail) -> None:
     with pytest.raises(MailError):
         _forward_mail()
     assert mail.appended == []
+
+
+def test_forward_header_uses_mail_locale_templates() -> None:
+    header = replying._forward_header(mime.parse(_raw_mail("Hi", ME, ALICE, "<o@x>")))
+    assert header == (
+        "\n\n---------- Message transféré ----------\n"
+        f"De : {ALICE}\n"
+        "Date : Mon, 05 Jan 2026 10:00:00 +0000\n"
+        "Objet : Hi\n"
+        f"À : {ME}\n\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [("Agenda", "Fwd: Agenda"), ("Fw: Agenda", "Fw: Agenda"), ("TR : Agenda", "TR : Agenda")],
+)
+def test_forward_subject_keeps_existing_prefix(mail: FakeMail, subject: str, expected: str) -> None:
+    mail.raw = _raw_mail(subject, ME, ALICE, "<o@x>")
+    assert replying._build_forward(DRAFT_UID, "INBOX", [ALICE], "", None, True)[1] == expected

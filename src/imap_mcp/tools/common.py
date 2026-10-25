@@ -18,6 +18,9 @@ from ..permissions import guard
 # Failures of the IMAP steps that run after a successful SMTP delivery.
 POST_SEND_ERRORS = (MailError, imaplib.IMAP4.error, OSError)
 
+# Language of the quote and forward headers written into outgoing mail.
+MAIL_LOCALE = "fr"
+
 
 def after_send(warnings: list[str], action: str, step: Callable[[], None]) -> None:
     """Run a step that follows a successful SMTP delivery.

@@ -8,12 +8,13 @@ from typing import Any
 
 from mcp.server.mcpserver import Context
 
-from .. import imap, mime, rights
+from .. import imap, mime, rights, templates
 from ..app import in_thread, mcp
 from ..compose import build_message, copy_attachments, prefixed, quote_reply
 from ..content import read_content
 from ..permissions import guard
 from .common import (
+    MAIL_LOCALE,
     after_send,
     authorize_attachments,
     deliver,
@@ -22,6 +23,9 @@ from .common import (
     sender,
     with_warnings,
 )
+
+# "Fw:" is accepted as a forward prefix although the locale templates do not list it.
+_FORWARD_SUBJECT = templates.prefix_pattern((*templates.FORWARD_PREFIXES, "fw"))
 
 
 @dataclass(frozen=True)
@@ -82,11 +86,15 @@ def _build_reply(
     author = sender()
     original = load_message(uid, folder)
     to, cc = mime.reply_target(original, reply_all, author)
-    subject = prefixed(mime.decode_text(original["Subject"]), "Re:", r"(?i)^(re|réf)\s*:")
+    subject = prefixed(mime.decode_text(original["Subject"]), "Re:", templates.REPLY_PATTERN)
     message_id = mime.text_header(original, "Message-ID")
     previous = mime.text_header(original, "References")
     references = " ".join(value for value in (previous, message_id) if value)
-    quoted = quote_reply(original, read_content(original).text) if include_quote else ""
+    quoted = (
+        quote_reply(original, read_content(original).text, locale=MAIL_LOCALE)
+        if include_quote
+        else ""
+    )
     message = build_message(
         author,
         to,
@@ -151,7 +159,7 @@ def _build_forward(
 ) -> tuple[EmailMessage, str]:
     original = load_message(uid, folder)
     content = read_content(original)
-    subject = prefixed(mime.decode_text(original["Subject"]), "Fwd:", r"(?i)^(tr|fwd?)\s*:")
+    subject = prefixed(mime.decode_text(original["Subject"]), "Fwd:", _FORWARD_SUBJECT)
     text = body + _forward_header(original) + content.text
     msg = build_message(sender(), to, subject, text, cc=cc)
     if include_attachments:
@@ -160,11 +168,10 @@ def _build_forward(
 
 
 def _forward_header(original: EmailMessage) -> str:
-    # The forward header is mail content, kept in French on purpose.
-    return (
-        "\n\n---------- Message transféré ----------\n"
-        f"De : {mime.decode_text(original['From'])}\n"
-        f"Date : {mime.decode_text(original['Date'])}\n"
-        f"Objet : {mime.decode_text(original['Subject'])}\n"
-        f"À : {mime.decode_text(original['To'])}\n\n"
+    return templates.forward_header(
+        MAIL_LOCALE,
+        mime.decode_text(original["From"]),
+        mime.decode_text(original["Date"]),
+        mime.decode_text(original["Subject"]),
+        mime.decode_text(original["To"]),
     )
