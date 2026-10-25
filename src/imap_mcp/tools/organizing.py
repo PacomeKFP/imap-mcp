@@ -31,6 +31,7 @@ def _mark_mails(uids: list[str], folder: str, read: bool | None, flagged: bool |
 @mcp.tool()
 async def move_mails(ctx: Context, uids: list[str], destination: str, folder: str = "INBOX") -> str:
     """Move messages to another folder."""
+    await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, destination])
     return await in_thread(_move_mails, uids, destination, folder)
 
@@ -45,6 +46,7 @@ def _move_mails(uids: list[str], destination: str, folder: str) -> str:
 @mcp.tool()
 async def copy_mails(ctx: Context, uids: list[str], destination: str, folder: str = "INBOX") -> str:
     """Copy messages to another folder."""
+    await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.create", targets=[destination])
     return await in_thread(_copy_mails, uids, destination, folder)
 
@@ -59,6 +61,7 @@ def _copy_mails(uids: list[str], destination: str, folder: str) -> str:
 @mcp.tool()
 async def archive_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> str:
     """Move messages to the Archive folder."""
+    await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.ARCHIVE])
     destination = await in_thread(_move_to_role, uids, folder, "archive")
     return f"{len(uids)} message(s) archived in {destination}."
@@ -82,6 +85,7 @@ def _delete_mails(uids: list[str], folder: str) -> str:
 @mcp.tool()
 async def mark_spam(ctx: Context, uids: list[str], folder: str = "INBOX") -> str:
     """Move messages to the Junk folder."""
+    await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.JUNK])
     destination = await in_thread(_move_to_role, uids, folder, "junk")
     return f"{len(uids)} message(s) moved to {destination}."
