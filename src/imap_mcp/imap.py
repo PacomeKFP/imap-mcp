@@ -35,7 +35,7 @@ _SUMMARY_FIELDS = (
 _SEARCH_ATOM = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:*,\-]*")
 _SEARCH_QUOTED = re.compile(r'"(?:[^"\\\x00-\x1f\x7f]|\\[^\x00-\x1f\x7f])*"')
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-_SEPARATOR_LINE = re.compile(rb'\([^)]*\)\s+(?P<sep>"[^"]*"|NIL)')
+_SEPARATOR_LINE = re.compile(rb'\([^)]*\)\s+(?P<sep>"(?:[^"\\]|\\.)*"|NIL)')
 
 
 @dataclass(frozen=True)
@@ -320,14 +320,25 @@ def ensure_folder(conn: Connection, name: str) -> None:
     conn.subscribe(quote(name))
 
 
+def _separator_from_row(row: Any) -> str | None:
+    """Separator of one LIST row; a literal name arrives as a tuple whose first item is the header."""
+    header = row[0] if isinstance(row, tuple) and row else row
+    if not isinstance(header, bytes):
+        return None
+    match = _SEPARATOR_LINE.match(header)
+    if not match or match["sep"] == b"NIL":
+        return None
+    return _QUOTED_ESCAPE.sub(r"\1", match["sep"][1:-1].decode(errors="replace"))
+
+
 def folder_separator() -> str:
     """Hierarchy separator of the server, such as '/' or '.'."""
     with session() as conn:
         _, rows = conn.list('""', '""')
     for row in rows or []:
-        match = _SEPARATOR_LINE.match(row) if isinstance(row, bytes) else None
-        if match and match["sep"] != b"NIL":
-            return match["sep"].decode().strip('"')
+        separator = _separator_from_row(row)
+        if separator is not None:
+            return separator
     return "/"
 
 

@@ -408,14 +408,6 @@ def test_folder_separator_without_rows_falls_back_to_slash(patched_session: Fake
     assert imap.folder_separator() == "/"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "folder_separator only parses bytes LIST rows; a row whose name arrives as an "
-        "IMAP literal is an imaplib tuple and is skipped, so the '.' separator is missed "
-        "and the function falls back to '/'. list_folders already handles tuple rows."
-    ),
-)
 def test_folder_separator_reads_literal_row(patched_session: FakeConn) -> None:
     patched_session.rows = [(b'(\\Noselect) "." {0}', b"")]
     assert imap.folder_separator() == "."
