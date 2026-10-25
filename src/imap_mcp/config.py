@@ -45,6 +45,7 @@ class Settings:
     agent_trash: str
     project_dir: Path
     config_dir: Path
+    tls_insecure: bool = False  # disables certificate verification; only for trusted test servers
 
 
 def load_settings() -> Settings:
@@ -61,6 +62,7 @@ def load_settings() -> Settings:
         agent_trash=os.environ.get("MAIL_AGENT_TRASH", "").strip() or "Agent Trash",
         project_dir=Path(os.environ.get("MAIL_PROJECT_DIR") or Path.cwd()),
         config_dir=_user_config_dir(),
+        tls_insecure=_flag("MAIL_TLS_INSECURE"),
     )
 
 

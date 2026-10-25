@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import imaplib
 import re
+import ssl
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
@@ -66,12 +67,21 @@ def expect_ok(status: str, data: list[Any], action: str) -> None:
         raise MailError(f"{action} refused by server: {detail}", code="server_refused")
 
 
+def tls_context() -> ssl.SSLContext:
+    """Verifying TLS context; unverified only when MAIL_TLS_INSECURE is set."""
+    context = ssl.create_default_context()
+    if settings.tls_insecure:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 @contextmanager
 def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connection]:
     """Open an authenticated connection and select a folder when one is given."""
     user, password = get_credentials()
     conn = Connection(require(settings.imap_host, "MAIL_HOST"),
-                      settings.imap_port, timeout=TIMEOUT)
+                      settings.imap_port, timeout=TIMEOUT, ssl_context=tls_context())
     try:
         try:
             conn.login(user, password)
