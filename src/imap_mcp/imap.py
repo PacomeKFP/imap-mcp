@@ -98,6 +98,7 @@ def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connec
             conn.login(user, password)
         except imaplib.IMAP4.error as exc:
             raise MailError(f"Authentication refused: {exc}", code="auth_failed") from exc
+        refresh_capabilities(conn)
         if folder is not None:
             select(conn, folder, readonly)
         yield conn
@@ -112,6 +113,20 @@ def select(conn: Connection, folder: str, readonly: bool = True) -> int:
     if status != "OK":
         raise MailError(f"Folder not found or not accessible: {folder}", code="folder_not_found")
     return int(data[0])
+
+
+def refresh_capabilities(conn: Connection) -> None:
+    """Re-read server capabilities; many servers only advertise MOVE/UIDPLUS after login.
+
+    imaplib's capability() returns the data without updating conn.capabilities,
+    so the attribute is set here. Failures keep the previously known list.
+    """
+    try:
+        _, data = conn.capability()
+    except (imaplib.IMAP4.error, OSError):
+        return
+    if data:
+        conn.capabilities = tuple(data[-1].upper().split())
 
 
 def has_capability(conn: Connection, name: str) -> bool:

@@ -20,6 +20,9 @@ class FakeConn:
     def login(self, user: str, password: str):
         return "OK", [b"logged in"]
 
+    def capability(self):
+        return "OK", [b"IMAP4rev1"]
+
     def logout(self):
         return "BYE", [b""]
 
@@ -56,6 +59,45 @@ def test_session_skips_verification_only_when_tls_insecure(captured, monkeypatch
     context = captured["kwargs"]["ssl_context"]
     assert context.verify_mode == ssl.CERT_NONE
     assert context.check_hostname is False
+
+
+class PostLoginCapConn(FakeConn):
+    """Pre-auth capabilities omit MOVE/UIDPLUS, as many servers do."""
+
+    def __init__(self, post_login: list[bytes] | None) -> None:
+        super().__init__()
+        self.capabilities = (b"IMAP4rev1", b"STARTTLS")
+        self.post_login = post_login
+        self.capability_calls = 0
+
+    def capability(self):
+        self.capability_calls += 1
+        if self.post_login is None:
+            raise imap.imaplib.IMAP4.error("CAPABILITY failed")
+        return "OK", [b" ".join(self.post_login)]
+
+
+def test_session_refreshes_capabilities_after_login(monkeypatch):
+    conn = PostLoginCapConn([b"IMAP4rev1", b"MOVE", b"UIDPLUS"])
+    monkeypatch.setattr(imap, "Connection", lambda *a, **k: conn)
+    monkeypatch.setattr(imap, "get_credentials", lambda: ("user@example.com", "secret"))
+    monkeypatch.setattr(imap, "settings",
+                        dataclasses.replace(base_settings, imap_host="imap.example.com"))
+    with imap.session():
+        assert conn.capability_calls == 1
+        assert imap.has_capability(conn, "MOVE")
+        assert imap.has_capability(conn, "uidplus")
+
+
+def test_session_keeps_known_capabilities_when_refresh_fails(monkeypatch):
+    conn = PostLoginCapConn(None)
+    monkeypatch.setattr(imap, "Connection", lambda *a, **k: conn)
+    monkeypatch.setattr(imap, "get_credentials", lambda: ("user@example.com", "secret"))
+    monkeypatch.setattr(imap, "settings",
+                        dataclasses.replace(base_settings, imap_host="imap.example.com"))
+    with imap.session():
+        assert not imap.has_capability(conn, "MOVE")
+        assert imap.has_capability(conn, "IMAP4rev1")
 
 
 def test_tls_insecure_is_off_by_default(monkeypatch):
