@@ -5,7 +5,7 @@ import pytest
 
 from imap_mcp import rights
 from imap_mcp.errors import MailError
-from imap_mcp.rights import ALLOW, ASK, DENY, Rule, RightsFile
+from imap_mcp.rights import ALLOW, ASK, DENY, RightsFile, Rule
 
 
 def layers(session: RightsFile | None = None, local: RightsFile | None = None,

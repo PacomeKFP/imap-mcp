@@ -10,7 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import imap, rights
-from .config import Settings, settings as default_settings
+from .config import Settings
+from .config import settings as default_settings
 from .errors import MailError
 
 LATEST = "latest"
