@@ -1,0 +1,10 @@
+From: Frank <frank@example.org>
+To: Bob <bob@example.net>
+Subject: Windows-1252 body
+Date: Fri, 10 Jan 2025 17:45:00 +0000
+Message-ID: <cp1252-1@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="windows-1252"
+Content-Transfer-Encoding: quoted-printable
+
+Prix : 5=80 =93citation=94 l=92hiver

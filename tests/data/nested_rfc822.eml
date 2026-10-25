@@ -1,0 +1,38 @@
+From: Grace <grace@example.org>
+To: Bob <bob@example.net>
+Subject: Fwd: Original report
+Date: Sun, 12 Jan 2025 11:00:00 +0000
+Message-ID: <nested-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="OUTER"
+
+--OUTER
+Content-Type: text/plain; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+
+See the forwarded message.
+--OUTER
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="forwarded.eml"
+
+From: Heidi <heidi@example.org>
+To: Grace <grace@example.org>
+Subject: Original report
+Date: Sat, 11 Jan 2025 16:00:00 +0000
+Message-ID: <inner-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="INNER"
+
+--INNER
+Content-Type: text/plain; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+
+Inner body text.
+--INNER
+Content-Type: text/plain; charset="us-ascii"; name="inner.txt"
+Content-Disposition: attachment; filename="inner.txt"
+Content-Transfer-Encoding: 7bit
+
+Inner attachment.
+--INNER--
+--OUTER--

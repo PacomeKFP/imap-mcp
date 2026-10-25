@@ -1,0 +1,19 @@
+From: Alice <alice@example.org>
+To: Bob <bob@example.net>
+Subject: Plain and HTML
+Date: Mon, 06 Jan 2025 10:00:00 +0000
+Message-ID: <alt-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="ALT"
+
+--ALT
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Plain text version.
+--ALT
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<html><head><title>Title</title><style>p { color: red; }</style></head><body><p>HTML version.</p></body></html>
+--ALT--

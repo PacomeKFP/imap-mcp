@@ -1,0 +1,17 @@
+From: Carol <carol@example.org>
+To: Bob <bob@example.net>
+Subject: HTML only
+Date: Tue, 07 Jan 2025 09:30:00 +0100
+Message-ID: <html-1@example.org>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<html>
+<head><title>Ignored</title><script>alert("no");</script></head>
+<body>
+<div>First</div>
+<p>Second &amp; last</p>
+<script>var hidden = 1;</script>
+</body>
+</html>

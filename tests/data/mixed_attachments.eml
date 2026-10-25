@@ -1,0 +1,26 @@
+From: Dave <dave@example.org>
+To: Bob <bob@example.net>
+Subject: Files attached
+Date: Wed, 08 Jan 2025 12:00:00 +0000
+Message-ID: <mixed-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: text/plain; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+
+Please see the attachments.
+--MIX
+Content-Type: text/plain; charset="us-ascii"; name="notes.txt"
+Content-Disposition: attachment; filename="notes.txt"
+Content-Transfer-Encoding: 7bit
+
+Meeting notes
+--MIX
+Content-Type: application/octet-stream; name="data.bin"
+Content-Disposition: attachment; filename="data.bin"
+Content-Transfer-Encoding: base64
+
+aGVsbG8gd29ybGQK
+--MIX--
