@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Any
+from typing import Any, cast
 
 from . import mime, utf7
 from .config import TIMEOUT, get_credentials, require, settings
@@ -41,6 +41,8 @@ _SEPARATOR_LINE = re.compile(rb'\([^)]*\)\s+(?P<sep>"(?:[^"\\]|\\.)*"|NIL)')
 
 @dataclass(frozen=True)
 class Folder:
+    """A mailbox from LIST: its decoded name and the attributes the server reported (e.g. \\Sent)."""
+
     name: str
     attributes: frozenset[str]
 
@@ -77,6 +79,7 @@ def uid_set(uids: Iterable[str]) -> str:
 
 
 def expect_ok(status: str, data: list[Any], action: str) -> None:
+    """Raise MailError(server_refused) unless the command returned OK; `action` names the step."""
     if status != "OK":
         detail = data[0].decode(errors="replace") if data and isinstance(data[0], bytes) else data
         raise MailError(f"{action} refused by server: {detail}", code="server_refused")
@@ -138,6 +141,7 @@ def refresh_capabilities(conn: Connection) -> None:
 
 
 def has_capability(conn: Connection, name: str) -> bool:
+    """Whether the server advertises a capability (case-insensitive), as last refreshed."""
     # Typeshed types capabilities as str, but refresh/imaplib paths can hold bytes.
     advertised: Iterable[str | bytes] = conn.capabilities
     caps = {(cap.decode() if isinstance(cap, bytes) else cap).upper() for cap in advertised}
@@ -281,13 +285,11 @@ def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
     return int(messages[1]), int(unread[1])
 
 
-def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
-    """UIDs matching the SEARCH criteria, which are ANDed keyword and value tokens.
+def _search_tokens(criteria: list[str]) -> tuple[list[str], bytes | None]:
+    """Validate SEARCH criteria; return the command tokens and the non-ASCII literal, if any.
 
-    Each token must be an atom or a quoted string without control characters. A
-    non-ASCII quoted value is sent as an IMAP literal under CHARSET UTF-8. imaplib
-    sends at most one literal per command, so a search may hold one such value at
-    most. The value and its keyword (HEADER takes a field name too) move to the end.
+    The literal's keyword (HEADER's field name included) moves to the end of the tokens,
+    so the literal, which imaplib appends after the last token, follows its keyword.
     """
     for part in criteria:
         if not (_SEARCH_ATOM.fullmatch(part) or _SEARCH_QUOTED.fullmatch(part)):
@@ -297,21 +299,69 @@ def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
         raise MailError(
             "Only one non-ASCII search value is supported per search.", code="invalid_argument"
         )
-    if literal_at:
-        i = literal_at[0]
-        start = i - 2 if i >= 2 and criteria[i - 2].upper() == "HEADER" else i - 1
-        if start < 0:
-            raise MailError(
-                "A non-ASCII search value needs a keyword before it.", code="invalid_argument"
-            )
-        literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
-        # imaplib sends bytes literals as-is; typeshed wrongly declares `literal: str | None`.
-        conn.literal = literal  # type: ignore[assignment]
-        tokens = criteria[:start] + criteria[i + 1 :] + criteria[start:i]
-        _, data = conn.uid("SEARCH", "CHARSET", "UTF-8", *tokens)
-    else:
-        _, data = conn.uid("SEARCH", *(criteria or ["ALL"]))
+    if not literal_at:
+        return list(criteria or ["ALL"]), None
+    i = literal_at[0]
+    start = i - 2 if i >= 2 and criteria[i - 2].upper() == "HEADER" else i - 1
+    if start < 0:
+        raise MailError(
+            "A non-ASCII search value needs a keyword before it.", code="invalid_argument"
+        )
+    literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
+    return criteria[:start] + criteria[i + 1 :] + criteria[start:i], literal
+
+
+def _uid_command(conn: Connection, literal: bytes | None, *args: str) -> tuple[str, list[Any]]:
+    """Run a UID command, sending the literal (if any) as its last argument."""
+    # imaplib sends a bytes literal unchanged; typeshed declares the attribute as str.
+    cast(Any, conn).literal = literal
+    return conn.uid(*args)
+
+
+def _uids(data: list[Any]) -> list[str]:
+    """UIDs from the untagged SEARCH or SORT response."""
     return data[0].decode().split() if data and data[0] else []
+
+
+def search_uids(conn: Connection, criteria: list[str], newest_first: bool = False) -> list[str]:
+    """UIDs matching the SEARCH criteria, which are ANDed keyword and value tokens.
+
+    Each token must be an atom or a quoted string without control characters. A
+    non-ASCII quoted value is sent as an IMAP literal under CHARSET UTF-8. imaplib
+    sends at most one literal per command, so a search may hold one such value at
+    most. The value and its keyword (HEADER takes a field name too) move to the end.
+
+    With newest_first, UIDs come newest first by date: UID SORT (REVERSE DATE) when the
+    server advertises SORT, otherwise descending UID order (which follows arrival order,
+    not the Date header).
+    """
+    tokens, literal = _search_tokens(criteria)
+    if newest_first and has_capability(conn, "SORT"):
+        status, data = _uid_command(conn, literal, "SORT", "(REVERSE DATE)", "UTF-8", *tokens)
+        if status == "OK":
+            return _uids(data)
+    charset = ["CHARSET", "UTF-8"] if literal is not None else []
+    _, data = _uid_command(conn, literal, "SEARCH", *charset, *tokens)
+    uids = _uids(data)
+    return sorted(uids, key=int, reverse=True) if newest_first else uids
+
+
+_UIDVALIDITY = re.compile(r"\[UIDVALIDITY (\d+)\]", re.IGNORECASE)
+
+
+def uidvalidity(conn: Connection) -> int | None:
+    """UIDVALIDITY of the folder selected last, or None when the server did not report it.
+
+    Reads the untagged "OK [UIDVALIDITY n]" response that imaplib keeps since SELECT,
+    without consuming it.
+    """
+    responses: dict[str, list[Any]] = getattr(conn, "untagged_responses", None) or {}
+    for line in reversed(responses.get("OK", [])):
+        if isinstance(line, bytes) and (
+            match := _UIDVALIDITY.search(line.decode(errors="replace"))
+        ):
+            return int(match[1])
+    return None
 
 
 def fetch_raw(conn: Connection, uid: str) -> tuple[bytes, str]:
@@ -356,6 +406,7 @@ def store(conn: Connection, uids: str, flags: str, value: bool) -> None:
 
 
 def copy(conn: Connection, uids: str, destination: str) -> None:
+    """Copy messages by UID (already validated) into another folder."""
     status, data = conn.uid("COPY", uids, quote(destination))
     expect_ok(status, data, "Copy")
 
@@ -418,6 +469,7 @@ def folder_separator() -> str:
 
 
 def append(conn: Connection, folder: str, message: EmailMessage, flags: str = "") -> None:
+    """Append a message to a folder, stamped with the current time; `flags` is a space-separated list."""
     status, data = conn.append(
         quote(folder),
         f"({flags})" if flags else None,
