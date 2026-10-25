@@ -4,6 +4,7 @@ from __future__ import annotations
 import imaplib
 import secrets
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from mcp.server.mcpserver import Context
@@ -63,10 +64,8 @@ def _special_folders() -> dict[str, str]:
     names: dict[str, str] = {}
     with imap.session() as conn:
         for alias, role in ROLE_ALIASES.items():
-            try:
+            with suppress(MailError):
                 names[alias] = imap.special_folder(conn, role)
-            except MailError:
-                continue
     return names
 
 

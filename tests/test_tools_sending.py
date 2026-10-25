@@ -101,7 +101,7 @@ def _run(coro: Any) -> Any:
 
 
 CTX: Any = None
-SEND_ARGS = dict(to=[ALICE], subject="Hi", body="Hello")
+SEND_ARGS: dict[str, Any] = {"to": [ALICE], "subject": "Hi", "body": "Hello"}
 
 
 def _send_mail(**overrides: Any) -> dict[str, Any]:
