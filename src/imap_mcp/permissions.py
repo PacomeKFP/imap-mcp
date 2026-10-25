@@ -1,8 +1,9 @@
 """Runtime guard: resolves rights before each tool, asks when needed, and journals decisions."""
 from __future__ import annotations
 
+import imaplib
 import secrets
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from mcp.server.mcpserver import Context
@@ -12,6 +13,10 @@ from .app import in_thread
 from .approval import ask_user, describe_targets
 from .config import Settings, settings
 from .errors import MailError
+
+# Pseudo-target aliases of the special folders, keyed to their IMAP role.
+ROLE_ALIASES: dict[str, str] = {rights.DRAFTS: "drafts", rights.ARCHIVE: "archive",
+                                rights.JUNK: "junk"}
 
 
 def _allowlisted(action: str, recipients: Sequence[str], layers: list[rights.Layer]) -> bool:
@@ -26,6 +31,45 @@ def new_session_id() -> str:
     return f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
 
 
+def counterparts(target: str | None, roles: Mapping[str, str]) -> list[str | None]:
+    """The target and its equivalent: a real folder name maps to its alias, and an alias to its folder."""
+    if target is None:
+        return [None]
+    names: list[str | None] = [target]
+    if target in roles:
+        names.append(roles[target])
+    names.extend(alias for alias, name in roles.items() if name == target)
+    return list(dict.fromkeys(names))
+
+
+def effective_decision(layers: Sequence[rights.Layer], action: str, target: str | None,
+                       roles: Mapping[str, str], separator: str) -> tuple[str, str]:
+    """Strictest explicit decision over the target and its counterparts, else the target's default."""
+    results = [rights.decide(layers, action, name, separator) for name in counterparts(target, roles)]
+    explicit = [result for result in results if result[1] != "default"]
+    if not explicit:
+        return rights.decide(layers, action, target, separator)
+    return rights.strictest_decision(explicit)
+
+
+def _names_folder(wanted: Sequence[str | None]) -> bool:
+    """True when a target is a real folder or a special-folder alias (not None or @downloads)."""
+    return any(target is not None and (target in ROLE_ALIASES or not target.startswith("@"))
+               for target in wanted)
+
+
+def _special_folders() -> dict[str, str]:
+    """Real names of the special folders keyed by alias. Uses one IMAP session."""
+    names: dict[str, str] = {}
+    with imap.session() as conn:
+        for alias, role in ROLE_ALIASES.items():
+            try:
+                names[alias] = imap.special_folder(conn, role)
+            except MailError:
+                continue
+    return names
+
+
 class Guard:
     """Checks rights before each tool call. One instance per server process."""
 
@@ -33,6 +77,7 @@ class Guard:
         self.config = config
         self.session_id = session_id
         self.separator: str | None = None
+        self.roles: dict[str, str] | None = None  # alias -> real folder name, resolved once
 
     def layers(self) -> list[rights.Layer]:
         return rights.load_layers(self.config, self.session_id)
@@ -77,9 +122,20 @@ class Guard:
         if self.separator is None and any(t is not None and not t.startswith("@") for t in wanted):
             self.separator = await in_thread(imap.folder_separator)
         layers = self.layers()
-        verdicts = [(target, *rights.decide(layers, action, target, self.separator or "/"))
+        roles = await self._roles(wanted)
+        separator = self.separator or "/"
+        verdicts = [(target, *effective_decision(layers, action, target, roles, separator))
                     for target in wanted]
         return verdicts, layers
+
+    async def _roles(self, wanted: Sequence[str | None]) -> dict[str, str]:
+        """Alias to real folder name. Failures fall back to no aliases and are retried later."""
+        if self.roles is None and _names_folder(wanted):
+            try:
+                self.roles = await in_thread(_special_folders)
+            except (MailError, OSError, imaplib.IMAP4.error):
+                return {}
+        return self.roles or {}
 
     def _remember(self, action: str, asks: list[str | None], recipients: Sequence[str]) -> None:
         path = rights.session_file(self.config, self.session_id)

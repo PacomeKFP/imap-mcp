@@ -89,6 +89,11 @@ def decide(layers: Sequence[Layer], action: str, target: str | None,
     return default_decision(action, target), "default"
 
 
+def strictest_decision(results: Iterable[tuple[str, str]]) -> tuple[str, str]:
+    """The (decision, source) pair with the strictest decision. The first one wins ties."""
+    return min(results, key=lambda result: _STRICTNESS[result[0]])
+
+
 def load_layers(config: Settings, session_id: str | None) -> list[Layer]:
     """Rights of each layer in precedence order: session (when given), local, global."""
     layers: list[Layer] = []
