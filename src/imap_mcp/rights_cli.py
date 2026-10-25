@@ -6,6 +6,7 @@ import imaplib
 import shutil
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from . import imap, rights
@@ -16,7 +17,7 @@ LATEST = "latest"
 SECONDS_PER_DAY = 86_400
 
 
-def add_parser(commands) -> None:
+def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = commands.add_parser("rights", help="manage access rules and recipient allowlists")
     sub = parser.add_subparsers(dest="rights_command", metavar="COMMAND", required=True)
     for name, decision, text in (
@@ -46,8 +47,9 @@ def add_parser(commands) -> None:
 
 
 def run(args: argparse.Namespace, config: Settings | None = None) -> int:
+    handler: Callable[[argparse.Namespace, Settings], int] = args.func
     try:
-        return args.func(args, config if config is not None else default_settings)
+        return handler(args, config if config is not None else default_settings)
     except (MailError, imaplib.IMAP4.error, OSError) as exc:
         print(f"Failed: {exc}", file=sys.stderr)
         return 1
