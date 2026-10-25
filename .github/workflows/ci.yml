@@ -35,9 +35,7 @@ jobs:
         continue-on-error: true
         run: uv run ruff format --check src tests
 
-      # Non-blocking until the remaining mypy findings in src are fixed.
       - name: Type check
-        continue-on-error: true
         run: uv run mypy src
 
       - name: Tests
