@@ -4,12 +4,26 @@ from __future__ import annotations
 from email.message import EmailMessage
 from pathlib import Path
 
+from mcp.server.mcpserver import Context
+
 from .. import imap, mime, smtp
 from ..config import get_credentials
+from ..permissions import guard
 
 
 def sender() -> str:
     return get_credentials()[0]
+
+
+async def authorize_attachments(ctx: Context, attachments: list[str] | None) -> None:
+    """Check file.read on the local files a tool is asked to attach."""
+    if attachments:
+        await guard.authorize(ctx, "file.read", detail=", ".join(attachments))
+
+
+def drafts_folder() -> str:
+    with imap.session() as conn:
+        return imap.special_folder(conn, "drafts")
 
 
 def load_message(uid: str, folder: str) -> EmailMessage:

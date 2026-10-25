@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from email.message import Message
 from pathlib import Path
 
 from mcp.server.mcpserver import Context
@@ -10,12 +11,36 @@ from mcp.server.mcpserver import Context
 from .. import imap, mime, rights
 from ..app import in_thread, mcp
 from ..config import settings
+from ..content import excerpt, get_part, read_content
 from ..errors import MailError
 from ..permissions import guard
 from .common import load_message, unique_path
 
+_BYTES_PER_KB = 1024
+_THREAD_FIELDS = ("Message-ID", "References", "In-Reply-To")
 _IMAP_DATE = re.compile(r"\d{1,2}-[A-Za-z]{3}-\d{4}")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+@dataclass(frozen=True)
+class SearchQuery:
+    """Criteria of search_mails. Empty strings, None and zero mean no filter."""
+
+    folder: str
+    text: str
+    sender: str
+    to: str
+    cc: str
+    subject: str
+    body: str
+    since: str
+    before: str
+    unread: bool | None
+    flagged: bool | None
+    larger_kb: int
+    smaller_kb: int
+    limit: int
+    offset: int
 
 
 @mcp.tool()
@@ -30,41 +55,53 @@ async def search_mails(ctx: Context, folder: str = "INBOX", text: str = "", send
     Paging with limit (max 100) and offset. Returns total and results (uid, date, from, to, subject, flags, size).
     """
     await guard.authorize(ctx, "mail.read", targets=[folder])
-    return await in_thread(
-        _search_mails, folder, text, sender, to, cc, subject, body, since, before,
-        unread, flagged, larger_kb, smaller_kb, limit, offset)
+    query = SearchQuery(folder, text, sender, to, cc, subject, body, since, before,
+                        unread, flagged, larger_kb, smaller_kb, limit, offset)
+    return await in_thread(_search_mails, query)
 
 
-def _search_mails(folder: str, text: str, sender: str, to: str, cc: str, subject: str, body: str,
-                  since: str, before: str, unread: bool | None, flagged: bool | None,
-                  larger_kb: int, smaller_kb: int, limit: int, offset: int) -> dict:
-    limit = max(1, min(limit, 100))
-    criteria: list[str] = []
-    for key, value in (("TEXT", text), ("FROM", sender), ("TO", to), ("CC", cc),
-                       ("SUBJECT", subject), ("BODY", body)):
-        if value:
-            criteria += [key, imap.search_literal(value)]
-    if since:
-        criteria += ["SINCE", _imap_date(since, "since")]
-    if before:
-        criteria += ["BEFORE", _imap_date(before, "before")]
-    if unread is not None:
-        criteria.append("UNSEEN" if unread else "SEEN")
-    if flagged is not None:
-        criteria.append("FLAGGED" if flagged else "UNFLAGGED")
-    if larger_kb:
-        criteria += ["LARGER", str(larger_kb * 1024)]
-    if smaller_kb:
-        criteria += ["SMALLER", str(smaller_kb * 1024)]
-    with imap.session(folder) as conn:
+def _search_mails(query: SearchQuery) -> dict:
+    criteria = _criteria(query)  # validated before the connection opens
+    limit = max(1, min(query.limit, 100))
+    with imap.session(query.folder) as conn:
         uids = imap.search_uids(conn, criteria)[::-1]
-        page = uids[offset:offset + limit]
+        page = uids[query.offset:query.offset + limit]
         return {
-            "folder": folder,
+            "folder": query.folder,
             "total": len(uids),
-            "offset": offset,
+            "offset": query.offset,
             "results": imap.fetch_summaries(conn, page),
         }
+
+
+def _criteria(query: SearchQuery) -> list[str]:
+    return _header_criteria(query) + _state_criteria(query)
+
+
+def _header_criteria(query: SearchQuery) -> list[str]:
+    criteria: list[str] = []
+    for key, value in (("TEXT", query.text), ("FROM", query.sender), ("TO", query.to),
+                       ("CC", query.cc), ("SUBJECT", query.subject), ("BODY", query.body)):
+        if value:
+            criteria += [key, imap.search_literal(value)]
+    if query.since:
+        criteria += ["SINCE", _imap_date(query.since, "since")]
+    if query.before:
+        criteria += ["BEFORE", _imap_date(query.before, "before")]
+    return criteria
+
+
+def _state_criteria(query: SearchQuery) -> list[str]:
+    criteria: list[str] = []
+    if query.unread is not None:
+        criteria.append("UNSEEN" if query.unread else "SEEN")
+    if query.flagged is not None:
+        criteria.append("FLAGGED" if query.flagged else "UNFLAGGED")
+    if query.larger_kb:
+        criteria += ["LARGER", str(query.larger_kb * _BYTES_PER_KB)]
+    if query.smaller_kb:
+        criteria += ["SMALLER", str(query.smaller_kb * _BYTES_PER_KB)]
+    return criteria
 
 
 def _imap_date(value: str, name: str) -> str:
@@ -90,7 +127,7 @@ def _read_mail(uid: str, folder: str, include_html: bool, mark_read: bool) -> di
         if mark_read:
             imap.store(conn, imap.uid_set([uid]), r"\Seen", True)
     msg = mime.parse(raw)
-    content = mime.read_content(msg)
+    content = read_content(msg)
     info = mime.summary(uid, msg, flags)
     info.update(
         from_list=mime.addresses(msg["From"]),
@@ -100,11 +137,11 @@ def _read_mail(uid: str, folder: str, include_html: bool, mark_read: bool) -> di
         message_id=mime.text_header(msg, "Message-ID"),
         in_reply_to=mime.text_header(msg, "In-Reply-To"),
         references=mime.text_header(msg, "References"),
-        body=mime.excerpt(content.text, settings.max_body),
+        body=excerpt(content.text, settings.max_body),
         attachments=[asdict(att) for att in content.attachments],
     )
     if include_html:
-        info["html"] = mime.excerpt(content.html, settings.max_body)
+        info["html"] = excerpt(content.html, settings.max_body)
     return info
 
 
@@ -119,21 +156,28 @@ def _get_thread(uid: str, folder: str) -> list[dict]:
     with imap.session(folder) as conn:
         raw, _ = imap.fetch_raw(conn, uid)
         sent = imap.special_folder(conn, "sent")
-    msg = mime.parse(raw)
-    header_values = " ".join(str(msg.get(h) or "")
-                             for h in ("Message-ID", "References", "In-Reply-To"))
-    ids = set(re.findall(r"<[^>]+>", header_values))
+    message_ids = _message_ids(mime.parse(raw))
     thread: list[dict] = []
     for name in dict.fromkeys([folder, sent]):
         with imap.session(name) as conn:
-            uids: set[str] = set()
-            for message_id in ids:
-                for field in ("Message-ID", "References", "In-Reply-To"):
-                    uids.update(imap.search_uids(
-                        conn, ["HEADER", field, imap.search_literal(message_id)]))
-            thread += [{"folder": name, **item}
-                       for item in imap.fetch_summaries(conn, sorted(uids))]
+            thread += _thread_items(conn, name, message_ids)
     return sorted(thread, key=lambda item: item["date"])
+
+
+def _message_ids(msg: Message) -> set[str]:
+    """Message-IDs in the headers of a message: its own and those of its parents."""
+    header_values = " ".join(str(msg.get(field) or "")
+                             for field in _THREAD_FIELDS)
+    return set(re.findall(r"<[^>]+>", header_values))
+
+
+def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> list[dict]:
+    uids: set[str] = set()
+    for message_id in message_ids:
+        for field in _THREAD_FIELDS:
+            uids.update(imap.search_uids(
+                conn, ["HEADER", field, imap.search_literal(message_id)]))
+    return [{"folder": name, **item} for item in imap.fetch_summaries(conn, sorted(uids))]
 
 
 @mcp.tool()
@@ -149,7 +193,7 @@ async def download_attachment(ctx: Context, uid: str, index: int, folder: str = 
 
 
 def _download_attachment(uid: str, index: int, folder: str, target_dir: Path) -> dict:
-    part = mime.get_part(load_message(uid, folder), index)
+    part = get_part(load_message(uid, folder), index)
     if part is None:
         raise MailError(f"No attachment at index {index}.", code="not_found")
     payload = part.get_payload(decode=True) or b""
