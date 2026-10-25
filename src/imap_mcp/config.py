@@ -1,4 +1,4 @@
-"""Configuration lue dans les variables d'environnement, et identifiants (variables ou trousseau)."""
+"""Configuration read from environment variables, and credentials (variables or keyring)."""
 from __future__ import annotations
 
 import os
@@ -13,6 +13,7 @@ from .errors import ConfigError
 SERVICE = "imap-mcp"
 TIMEOUT = 40
 AGENT_DIR = ".imap-mcp"
+ACCOUNT_KEY = "user"  # keyring entry that holds the account address
 
 
 def _flag(name: str) -> bool:
@@ -73,7 +74,7 @@ def require(value: str, variable: str) -> str:
 
 
 def get_credentials() -> tuple[str, str]:
-    """Adresse et mot de passe : variables d'environnement, sinon trousseau système."""
+    """Address and password: environment variables first, then the system keyring."""
     user = os.environ.get("MAIL_USER") or None
     password = os.environ.get("MAIL_PASSWORD") or None
     if not (user and password):
@@ -86,7 +87,7 @@ def get_credentials() -> tuple[str, str]:
 
 def _from_keyring(user: str | None, password: str | None) -> tuple[str | None, str | None]:
     try:
-        user = user or keyring.get_password(SERVICE, "user")
+        user = user or keyring.get_password(SERVICE, ACCOUNT_KEY)
         if user and not password:
             password = keyring.get_password(SERVICE, user)
     except KeyringError:

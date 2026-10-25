@@ -1,4 +1,4 @@
-"""Permet `python -m imap_mcp`."""
+"""Allows `python -m imap_mcp`."""
 
 import sys
 

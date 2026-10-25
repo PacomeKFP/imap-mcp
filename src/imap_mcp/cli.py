@@ -1,4 +1,4 @@
-"""Point d'entrée `imap-mcp` : serveur MCP (par défaut), `setup` et `check`."""
+"""Entry point `imap-mcp`: MCP server (default), `setup`, `check` and `rights`."""
 from __future__ import annotations
 
 import argparse
@@ -12,20 +12,20 @@ import keyring
 from keyring.errors import KeyringError
 
 from . import imap, rights_cli
-from .config import SERVICE, get_credentials, settings
+from .config import ACCOUNT_KEY, SERVICE, get_credentials, settings
 from .errors import MailError
 from .tools import run as run_server
 
 
 def setup_credentials() -> int:
-    """Enregistre l'adresse et le mot de passe dans le trousseau système."""
+    """Store the address and password in the system keyring."""
     user = input("Email address: ").strip()
     password = getpass.getpass("Password: ")
     if not user or not password:
         print("Email address and password are required.", file=sys.stderr)
         return 1
     try:
-        keyring.set_password(SERVICE, "user", user)
+        keyring.set_password(SERVICE, ACCOUNT_KEY, user)
         keyring.set_password(SERVICE, user, password)
     except KeyringError as exc:
         print(f"System keyring unavailable: {exc}", file=sys.stderr)
@@ -35,7 +35,7 @@ def setup_credentials() -> int:
 
 
 def _folder_volume(conn: imap.Connection, folder: str) -> tuple[int, int]:
-    """Nombre de messages et taille totale (octets) d'un dossier, sans lire le contenu."""
+    """Message count and total size in bytes of a folder, without reading the content."""
     count = imap.select(conn, folder)
     if not count:
         return 0, 0
@@ -49,22 +49,26 @@ def _folder_volume(conn: imap.Connection, folder: str) -> tuple[int, int]:
     return count, total
 
 
+def _print_folders(conn: imap.Connection) -> None:
+    """Print the folder list, the INBOX count and the volume of the Drafts folder."""
+    folders = imap.list_folders(conn)
+    print(f"Folders ({len(folders)}):")
+    for folder in folders:
+        print(f"   {folder.name}")
+    print(f"INBOX: {imap.select(conn, 'INBOX')} messages (read-only)")
+    drafts = imap.special_folder(conn, "drafts")
+    count, size = _folder_volume(conn, drafts)
+    print(f"{drafts}: {count} messages, {size / 1024:.1f} KB total")
+
+
 def check_connection() -> int:
-    """Teste la connexion et l'authentification en lecture seule."""
+    """Check connection and authentication; create the Agent Trash folder unless read-only."""
     try:
         user, _ = get_credentials()
         with imap.session() as conn:
-            print(
-                f"TLS connection and authentication OK: {user} ({settings.imap_host}:{settings.imap_port})")
-            folders = imap.list_folders(conn)
-            print(f"Folders ({len(folders)}):")
-            for folder in folders:
-                print(f"   {folder.name}")
-            print(
-                f"INBOX: {imap.select(conn, 'INBOX')} messages (read-only)")
-            drafts = imap.special_folder(conn, "drafts")
-            count, size = _folder_volume(conn, drafts)
-            print(f"{drafts}: {count} messages, {size / 1024:.1f} KB total")
+            print(f"TLS connection and authentication OK: {user} "
+                  f"({settings.imap_host}:{settings.imap_port})")
+            _print_folders(conn)
             if not settings.read_only:
                 imap.ensure_folder(conn, settings.agent_trash)
                 print(f"Agent Trash ready: {settings.agent_trash}")

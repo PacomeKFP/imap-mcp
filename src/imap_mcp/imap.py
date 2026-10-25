@@ -1,4 +1,4 @@
-"""Connexion IMAP et opérations bas niveau : dossiers, recherche, messages, drapeaux."""
+"""IMAP connection and low-level operations: folders, search, messages, flags."""
 from __future__ import annotations
 
 import imaplib
@@ -17,7 +17,7 @@ from .errors import MailError
 Connection = imaplib.IMAP4_SSL
 imaplib.Commands.setdefault("MOVE", ("SELECTED",))  # RFC 6851; imaplib does not know MOVE
 
-# Rôle -> noms de repli, utilisés si le serveur n'expose pas l'attribut SPECIAL-USE.
+# Role -> fallback folder names, used when the server does not expose SPECIAL-USE.
 SPECIAL_ROLES: dict[str, tuple[str, ...]] = {
     "sent": ("Sent", "Éléments envoyés"),
     "drafts": ("Drafts", "Brouillons"),
@@ -42,17 +42,17 @@ class Folder:
 
 
 def quote(name: str) -> str:
-    """Nom de dossier au format IMAP (UTF-7 modifié, entre guillemets)."""
+    """Folder name in IMAP form (modified UTF-7, in double quotes)."""
     return '"' + utf7.encode(name).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def search_literal(value: str) -> str:
-    """Chaîne entre guillemets pour SEARCH."""
+    """Double-quoted string for SEARCH."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def uid_set(uids: Iterable[str]) -> str:
-    """Valide une liste d'UID et la renvoie au format IMAP (1,2,3)."""
+    """Validate a list of UIDs and return them in IMAP form (1,2,3)."""
     clean = [str(uid).strip() for uid in uids]
     if not clean or not all(re.fullmatch(r"\d+", uid) for uid in clean):
         raise MailError("uids must be a non-empty list of integers.", code="invalid_uids")
@@ -68,7 +68,7 @@ def expect_ok(status: str, data: list[Any], action: str) -> None:
 
 @contextmanager
 def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connection]:
-    """Ouvre une connexion authentifiée et, si demandé, sélectionne un dossier."""
+    """Open an authenticated connection and select a folder when one is given."""
     user, password = get_credentials()
     conn = Connection(require(settings.imap_host, "MAIL_HOST"),
                       settings.imap_port, timeout=TIMEOUT)
@@ -86,7 +86,7 @@ def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connec
 
 
 def select(conn: Connection, folder: str, readonly: bool = True) -> int:
-    """Sélectionne un dossier et renvoie son nombre de messages."""
+    """Select a folder and return its message count."""
     status, data = conn.select(quote(folder), readonly=readonly)
     if status != "OK":
         raise MailError(f"Folder not found or not accessible: {folder}", code="folder_not_found")
@@ -115,7 +115,7 @@ def list_folders(conn: Connection) -> list[Folder]:
 
 
 def special_folder(conn: Connection, role: str) -> str:
-    """Nom du dossier spécial (sent, drafts, trash, junk, archive) : attribut IMAP puis noms de repli."""
+    """Special folder name (sent, drafts, trash, junk, archive), by attribute then by name."""
     folders = list_folders(conn)
     for folder in folders:
         if folder.role == role:
@@ -128,7 +128,7 @@ def special_folder(conn: Connection, role: str) -> str:
 
 
 def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
-    """(messages, non lus) d'un dossier, ou None si indisponible."""
+    """(messages, unread) of a folder, or None when unavailable."""
     status, data = conn.status(quote(folder), "(MESSAGES UNSEEN)")
     if status != "OK" or not data or not data[0]:
         return None
@@ -138,7 +138,7 @@ def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
 
 
 def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
-    """UID correspondant aux critères SEARCH ; les valeurs non ASCII sont envoyées en UTF-8."""
+    """UIDs matching the SEARCH criteria; non-ASCII values are sent as UTF-8."""
     utf8 = any(not part.isascii() for part in criteria)
     args: list[str | bytes] = [part.encode(
         "utf-8") if not part.isascii() else part for part in criteria]
@@ -148,7 +148,7 @@ def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
 
 
 def fetch_raw(conn: Connection, uid: str) -> tuple[bytes, str]:
-    """Message brut et drapeaux, sans marquer le message comme lu."""
+    """Raw message and flags, without marking the message as read."""
     _, parts = conn.uid("FETCH", uid_set([uid]), "(FLAGS BODY.PEEK[])")
     for part in parts or []:
         if isinstance(part, tuple):
@@ -158,7 +158,7 @@ def fetch_raw(conn: Connection, uid: str) -> tuple[bytes, str]:
 
 
 def fetch_summaries(conn: Connection, uids: list[str]) -> list[dict[str, Any]]:
-    """En-têtes résumés pour une liste d'UID, dans l'ordre demandé."""
+    """Header summaries for a list of UIDs, in the requested order."""
     if not uids:
         return []
     _, parts = conn.uid("FETCH", ",".join(uids), _SUMMARY_FIELDS)
@@ -182,7 +182,7 @@ def fetch_summaries(conn: Connection, uids: list[str]) -> list[dict[str, Any]]:
 
 
 def store(conn: Connection, uids: str, flags: str, value: bool) -> None:
-    """Ajoute (value=True) ou retire des drapeaux IMAP sur des UID déjà validés."""
+    """Add (value=True) or remove IMAP flags on UIDs that were already validated."""
     op = "+FLAGS.SILENT" if value else "-FLAGS.SILENT"
     status, data = conn.uid("STORE", uids, op, f"({flags})")
     expect_ok(status, data, "Flag update")
@@ -240,7 +240,7 @@ def append(conn: Connection, folder: str, message: EmailMessage, flags: str = ""
 
 
 def uid_by_message_id(conn: Connection, folder: str, message_id: str) -> str | None:
-    """UID du message portant ce Message-ID dans le dossier, ou None."""
+    """UID of the message with this Message-ID in the folder, or None."""
     select(conn, folder, readonly=True)
     uids = search_uids(conn, ["HEADER", "Message-ID",
                        search_literal(message_id)])

@@ -1,4 +1,4 @@
-"""Encodage UTF-7 modifié (RFC 3501) des noms de dossiers IMAP."""
+"""Modified UTF-7 encoding (RFC 3501) of IMAP folder names."""
 from __future__ import annotations
 
 import base64
