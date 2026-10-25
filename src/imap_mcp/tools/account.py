@@ -81,6 +81,7 @@ def _create_folder(name: str) -> str:
         status, data = conn.create(imap.quote(name))
         imap.expect_ok(status, data, "Folder creation")
         conn.subscribe(imap.quote(name))
+    imap.clear_caches()
     return f"Folder created: {name}"
 
 
@@ -95,4 +96,5 @@ def _rename_folder(old_name: str, new_name: str) -> str:
     with imap.session() as conn:
         status, data = conn.rename(imap.quote(old_name), imap.quote(new_name))
         imap.expect_ok(status, data, "Folder rename")
+    imap.clear_caches()
     return f"{old_name} -> {new_name}"

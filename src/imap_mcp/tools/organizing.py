@@ -101,7 +101,7 @@ async def mark_spam(ctx: Context, uids: list[str], folder: str = "INBOX") -> str
 
 def _move_to_role(uids: list[str], folder: str, role: str) -> str:
     ids = imap.uid_set(uids)
+    destination = imap.cached_special_folder(role)
     with imap.session(folder, readonly=False) as conn:
-        destination = imap.special_folder(conn, role)
         imap.move(conn, ids, destination)
     return destination

@@ -82,7 +82,8 @@ async def search_mails(
 
     text searches headers and body. since/before use DD-Mon-YYYY (e.g. 01-Oct-2026).
     unread / flagged: True or False to filter, None to ignore.
-    Paging with limit (max 100) and offset. Returns total and results (uid, date, from, to, subject, flags, size).
+    Paging with limit (max 100) and offset. Returns folder, uidvalidity (UIDs are only stable while it
+    holds), total and results (uid, date, from, to, subject, flags, size).
     """
     await guard.authorize(ctx, "mail.read", targets=[folder])
     query = SearchQuery(
@@ -109,10 +110,11 @@ def _search_mails(query: SearchQuery) -> dict[str, Any]:
     criteria = _criteria(query)  # validated before the connection opens
     limit, offset = _page(query.limit, query.offset)
     with imap.session(query.folder) as conn:
-        uids = imap.search_uids(conn, criteria)[::-1]
+        uids = imap.search_uids(conn, criteria, newest_first=True)
         page = uids[offset : offset + limit]
         return {
             "folder": query.folder,
+            "uidvalidity": imap.uidvalidity(conn),
             "total": len(uids),
             "offset": offset,
             "results": imap.fetch_summaries(conn, page),
