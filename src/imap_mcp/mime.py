@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import email
+from collections.abc import Iterable
+from datetime import datetime, timezone
 from email import policy
 from email.errors import MessageError
 from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
-from email.utils import getaddresses, parseaddr, parsedate_to_datetime
-from typing import Any, cast
+from email.utils import getaddresses, parsedate_to_datetime
+from typing import Any
+
+_MIN_UTC = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def parse(raw: bytes) -> EmailMessage:
-    return cast(EmailMessage, email.message_from_bytes(raw, policy=policy.default))
+    return email.message_from_bytes(raw, policy=policy.default)
 
 
 def decode_text(value: object) -> str:
@@ -48,23 +52,49 @@ def _bare_addresses(*values: object) -> list[str]:
             for _, addr in getaddresses([str(value)]) if addr]
 
 
+def _unique(addresses: Iterable[str]) -> list[str]:
+    """Drop repeated addresses, comparing them case-insensitively."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for addr in addresses:
+        key = addr.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(addr)
+    return result
+
+
 def all_recipients(msg: Message) -> list[str]:
     return _bare_addresses(msg.get("To"), msg.get("Cc"), msg.get("Bcc"))
 
 
 def reply_target(original: Message, reply_all: bool, me: str) -> tuple[list[str], list[str]]:
     """Recipients (To, Cc) of a reply; `me` is left out of the copies."""
-    sender = parseaddr(str(original.get("Reply-To")
-                       or original.get("From") or ""))[1]
+    targets = _unique(_bare_addresses(original.get("Reply-To") or original.get("From")))
     if not reply_all:
-        return [sender], []
-    others = [
-        addr
-        for _, addr in getaddresses([str(original.get("To") or ""), str(original.get("Cc") or "")])
-        if addr
-    ]
-    excluded = {me.lower(), sender.lower()}
-    return [sender], [addr for addr in others if addr.lower() not in excluded]
+        return targets, []
+    excluded = {me.lower(), *(addr.lower() for addr in targets)}
+    others = _unique(_bare_addresses(original.get("To"), original.get("Cc")))
+    return targets, [addr for addr in others if addr.lower() not in excluded]
+
+
+def sort_key(date: object) -> datetime:
+    """UTC instant of a summary date (ISO string or RFC 2822); the minimum when unparseable.
+    Naive dates are taken as UTC."""
+    text = str(date or "")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(text)
+        except (TypeError, ValueError):
+            return _MIN_UTC
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError):
+        return _MIN_UTC
 
 
 def summary(uid: str, msg: Message, flags: str = "", size: int | None = None) -> dict[str, Any]:

@@ -7,7 +7,7 @@ from email.message import EmailMessage, Message
 from email.utils import formatdate, make_msgid
 from pathlib import Path
 
-from .content import Attachment, get_part
+from .content import Attachment, get_part, payload_bytes
 from .errors import MailError
 from .mime import decode_text
 
@@ -26,7 +26,7 @@ def copy_attachments(source: Message, target: EmailMessage, attachments: list[At
     for attachment in attachments:
         part = get_part(source, attachment.index)
         if part is not None:
-            add_bytes(target, part.get_payload(decode=True) or b"",
+            add_bytes(target, payload_bytes(part),
                       attachment.content_type, attachment.filename)
 
 

@@ -5,13 +5,14 @@ import re
 from dataclasses import asdict, dataclass
 from email.message import Message
 from pathlib import Path
+from typing import Any
 
 from mcp.server.mcpserver import Context
 
 from .. import imap, mime, rights
 from ..app import in_thread, mcp
 from ..config import settings
-from ..content import excerpt, get_part, read_content
+from ..content import excerpt, get_part, payload_bytes, read_content
 from ..errors import MailError
 from ..permissions import guard
 from .common import load_message, unique_path
@@ -47,7 +48,7 @@ class SearchQuery:
 async def search_mails(ctx: Context, folder: str = "INBOX", text: str = "", sender: str = "", to: str = "",
                        cc: str = "", subject: str = "", body: str = "", since: str = "", before: str = "",
                        unread: bool | None = None, flagged: bool | None = None,
-                       larger_kb: int = 0, smaller_kb: int = 0, limit: int = 20, offset: int = 0) -> dict:
+                       larger_kb: int = 0, smaller_kb: int = 0, limit: int = 20, offset: int = 0) -> dict[str, Any]:
     """Multi-criteria search, newest first.
 
     text searches headers and body. since/before use DD-Mon-YYYY (e.g. 01-Oct-2026).
@@ -60,7 +61,7 @@ async def search_mails(ctx: Context, folder: str = "INBOX", text: str = "", send
     return await in_thread(_search_mails, query)
 
 
-def _search_mails(query: SearchQuery) -> dict:
+def _search_mails(query: SearchQuery) -> dict[str, Any]:
     criteria = _criteria(query)  # validated before the connection opens
     limit = max(1, min(query.limit, 100))
     with imap.session(query.folder) as conn:
@@ -112,7 +113,7 @@ def _imap_date(value: str, name: str) -> str:
 
 @mcp.tool()
 async def read_mail(ctx: Context, uid: str, folder: str = "INBOX", include_html: bool = False,
-                    mark_read: bool = False) -> dict:
+                    mark_read: bool = False) -> dict[str, Any]:
     """Read a mail: full headers, text body and attachments (use the index with download_attachment).
 
     Does not mark the message as read unless mark_read=True.
@@ -121,7 +122,7 @@ async def read_mail(ctx: Context, uid: str, folder: str = "INBOX", include_html:
     return await in_thread(_read_mail, uid, folder, include_html, mark_read)
 
 
-def _read_mail(uid: str, folder: str, include_html: bool, mark_read: bool) -> dict:
+def _read_mail(uid: str, folder: str, include_html: bool, mark_read: bool) -> dict[str, Any]:
     with imap.session(folder, readonly=not mark_read) as conn:
         raw, flags = imap.fetch_raw(conn, uid)
         if mark_read:
@@ -146,22 +147,22 @@ def _read_mail(uid: str, folder: str, include_html: bool, mark_read: bool) -> di
 
 
 @mcp.tool()
-async def get_thread(ctx: Context, uid: str, folder: str = "INBOX") -> list[dict]:
+async def get_thread(ctx: Context, uid: str, folder: str = "INBOX") -> list[dict[str, Any]]:
     """Conversation thread of a message (Message-ID/References) across the folder and Sent, oldest first."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     return await in_thread(_get_thread, uid, folder)
 
 
-def _get_thread(uid: str, folder: str) -> list[dict]:
+def _get_thread(uid: str, folder: str) -> list[dict[str, Any]]:
     with imap.session(folder) as conn:
         raw, _ = imap.fetch_raw(conn, uid)
         sent = imap.special_folder(conn, "sent")
     message_ids = _message_ids(mime.parse(raw))
-    thread: list[dict] = []
+    thread: list[dict[str, Any]] = []
     for name in dict.fromkeys([folder, sent]):
         with imap.session(name) as conn:
             thread += _thread_items(conn, name, message_ids)
-    return sorted(thread, key=lambda item: item["date"])
+    return sorted(thread, key=lambda item: mime.sort_key(item["date"]))
 
 
 def _message_ids(msg: Message) -> set[str]:
@@ -171,7 +172,7 @@ def _message_ids(msg: Message) -> set[str]:
     return set(re.findall(r"<[^>]+>", header_values))
 
 
-def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> list[dict]:
+def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> list[dict[str, Any]]:
     uids: set[str] = set()
     for message_id in message_ids:
         for field in _THREAD_FIELDS:
@@ -182,7 +183,7 @@ def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> li
 
 @mcp.tool()
 async def download_attachment(ctx: Context, uid: str, index: int, folder: str = "INBOX",
-                              dest_dir: str = "") -> dict:
+                              dest_dir: str = "") -> dict[str, Any]:
     """Save an attachment to disk (index from read_mail). Default folder: Downloads/imap-mcp."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     target_dir = (Path(dest_dir).expanduser() if dest_dir else settings.download_dir).resolve()
@@ -192,11 +193,11 @@ async def download_attachment(ctx: Context, uid: str, index: int, folder: str = 
     return await in_thread(_download_attachment, uid, index, folder, target_dir)
 
 
-def _download_attachment(uid: str, index: int, folder: str, target_dir: Path) -> dict:
+def _download_attachment(uid: str, index: int, folder: str, target_dir: Path) -> dict[str, Any]:
     part = get_part(load_message(uid, folder), index)
     if part is None:
         raise MailError(f"No attachment at index {index}.", code="not_found")
-    payload = part.get_payload(decode=True) or b""
+    payload = payload_bytes(part)
     target_dir.mkdir(parents=True, exist_ok=True)
     name = _UNSAFE_FILENAME_CHARS.sub("_", mime.decode_text(
         part.get_filename()) or f"attachment-{index}").strip()

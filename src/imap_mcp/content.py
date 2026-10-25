@@ -62,6 +62,12 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip()
 
 
+def payload_bytes(part: Message) -> bytes:
+    """Decoded payload of a non-multipart part; empty when it is not bytes."""
+    payload = part.get_payload(decode=True)
+    return payload if isinstance(payload, bytes) else b""
+
+
 def excerpt(text: str, limit: int) -> str:
     """Cut text to limit characters, with a marker when it was cut."""
     return text if len(text) <= limit else text[:limit] + "\n[truncated]"
@@ -71,7 +77,7 @@ def _text_of(part: Message) -> str:
     try:
         return str(part.get_content())  # type: ignore[attr-defined]
     except (LookupError, ValueError):
-        return (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace")
+        return payload_bytes(part).decode("utf-8", errors="replace")
 
 
 def read_content(msg: Message) -> Content:
@@ -83,7 +89,7 @@ def read_content(msg: Message) -> Content:
             continue
         content_type = part.get_content_type()
         if part.get_filename() or part.get_content_disposition() == "attachment":
-            payload = part.get_payload(decode=True) or b""
+            payload = payload_bytes(part)
             name = decode_text(part.get_filename()) or f"part-{index}"
             attachments.append(Attachment(
                 index, name, content_type, len(payload)))
