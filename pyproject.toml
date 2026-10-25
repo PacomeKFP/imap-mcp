@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "imap-mcp"
+version = "0.1.0"
+description = "Serveur MCP pour une boîte mail via IMAP/SMTP : lecture, recherche, brouillons, envoi."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "PacomeKFP" }]
+keywords = ["mcp", "imap", "smtp", "email", "llm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp",
+    "keyring",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+imap-mcp = "imap_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PacomeKFP/imap-mcp"
+Repository = "https://github.com/PacomeKFP/imap-mcp"
+Issues = "https://github.com/PacomeKFP/imap-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/imap_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

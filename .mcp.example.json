@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "imap": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/PacomeKFP/imap-mcp",
+        "imap-mcp"
+      ],
+      "env": {
+        "MAIL_HOST": "imap.example.com"
+      }
+    }
+  }
+}
