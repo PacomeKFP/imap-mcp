@@ -63,6 +63,7 @@ class SearchQuery:
 async def search_mails(
     ctx: Context,
     folder: str = "INBOX",
+    *,
     text: str = "",
     sender: str = "",
     to: str = "",
@@ -189,6 +190,7 @@ async def read_mail(
     ctx: Context,
     uid: str,
     folder: str = "INBOX",
+    *,
     include_html: bool = False,
     mark_read: bool = False,
 ) -> dict[str, Any]:
@@ -259,7 +261,7 @@ def _thread_items(conn: imap.Connection, name: str, message_ids: set[str]) -> li
 
 @mcp.tool()
 async def download_attachment(
-    ctx: Context, uid: str, index: int, folder: str = "INBOX", dest_dir: str = ""
+    ctx: Context, uid: str, index: int, *, folder: str = "INBOX", dest_dir: str = ""
 ) -> dict[str, Any]:
     """Save an attachment to disk (index from read_mail). Default folder: Downloads/imap-mcp."""
     await guard.authorize(ctx, "mail.read", targets=[folder])

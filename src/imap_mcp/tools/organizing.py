@@ -30,6 +30,7 @@ async def mark_mails(
     ctx: Context,
     uids: list[str],
     folder: str = "INBOX",
+    *,
     read: bool | None = None,
     flagged: bool | None = None,
     answered: bool | None = None,
@@ -58,7 +59,7 @@ def _mark_mails(
 
 @mcp.tool()
 async def move_mails(
-    ctx: Context, uids: list[str], destination: str, folder: str = "INBOX"
+    ctx: Context, uids: list[str], destination: str, *, folder: str = "INBOX"
 ) -> TransferResult:
     """Move messages to another folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
@@ -75,7 +76,7 @@ def _move_mails(uids: list[str], destination: str, folder: str) -> TransferResul
 
 @mcp.tool()
 async def copy_mails(
-    ctx: Context, uids: list[str], destination: str, folder: str = "INBOX"
+    ctx: Context, uids: list[str], destination: str, *, folder: str = "INBOX"
 ) -> TransferResult:
     """Copy messages to another folder. The originals stay in place."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
@@ -91,7 +92,7 @@ def _copy_mails(uids: list[str], destination: str, folder: str) -> TransferResul
 
 
 @mcp.tool()
-async def archive_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
+async def archive_mails(ctx: Context, uids: list[str], *, folder: str = "INBOX") -> TransferResult:
     """Move messages to the Archive folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.ARCHIVE])
@@ -99,7 +100,7 @@ async def archive_mails(ctx: Context, uids: list[str], folder: str = "INBOX") ->
 
 
 @mcp.tool()
-async def trash_mails(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
+async def trash_mails(ctx: Context, uids: list[str], *, folder: str = "INBOX") -> TransferResult:
     """Move messages to the Agent Trash. Nothing is purged; only the user can empty that folder."""
     await guard.authorize(ctx, "mail.delete", targets=[folder])
     return await in_thread(_trash_mails, uids, folder)
@@ -114,7 +115,7 @@ def _trash_mails(uids: list[str], folder: str) -> TransferResult:
 
 
 @mcp.tool()
-async def mark_spam(ctx: Context, uids: list[str], folder: str = "INBOX") -> TransferResult:
+async def mark_spam(ctx: Context, uids: list[str], *, folder: str = "INBOX") -> TransferResult:
     """Move messages to the Junk folder."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await guard.authorize(ctx, "mail.move", targets=[folder, rights.JUNK])
