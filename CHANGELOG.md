@@ -31,6 +31,8 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Une configuration invalide (ou des identifiants absents) affiche `Failed: ...` et quitte avec le code 1, au lieu d'une trace d'erreur.
 - Les ports (`MAIL_PORT`, `MAIL_SMTP_PORT`) doivent être compris entre 1 et 65535 ; `MAIL_MAX_BODY` et `MAIL_TIMEOUT` doivent être positifs. Une valeur invalide produit une erreur explicite.
 
+- Les outils d'envoi (`send_mail`, `send_draft`, `reply_mail`, `forward_mail`) renvoient les avertissements post-envoi sous forme d'objets `{step, error}` au lieu de phrases ; leurs paramètres au-delà des arguments obligatoires sont désormais nommés (mot-clé uniquement).
+
 ### Fixed
 
 - Les envois non idempotents (envoi, réponse, transfert) signalent un avertissement au lieu d'une erreur lorsque le message a été remis mais qu'une étape ultérieure a échoué.

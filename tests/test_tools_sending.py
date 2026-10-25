@@ -158,8 +158,9 @@ def test_send_mail_copy_failure_returns_warning(
     assert result["sent"] is True
     assert len(mail.smtp_calls) == 1
     assert len(result["warnings"]) == 1
-    assert all(isinstance(item, str) for item in result["warnings"])
-    assert "Do not send it again" in result["warnings"][0]
+    assert all(isinstance(item, dict) for item in result["warnings"])
+    assert result["warnings"][0]["step"] == "saving a copy to Sent"
+    assert result["warnings"][0]["error"]
 
 
 def test_send_mail_smtp_failure_propagates(mail: FakeMail) -> None:
@@ -201,7 +202,7 @@ def test_send_draft_trash_failure_still_copies_to_sent(
     result = _send_draft()
     assert result["sent"] is True
     assert len(result["warnings"]) == 1
-    assert "Agent Trash" in result["warnings"][0]
+    assert result["warnings"][0]["step"] == composing._TRASH_STEP
     assert mail.appended == [SENT_FOLDER]
 
 
@@ -240,7 +241,7 @@ def test_reply_mail_mark_answered_failure_returns_warning(
     result = _reply_mail()
     assert result["sent"] is True
     assert len(result["warnings"]) == 1
-    assert "answered" in result["warnings"][0]
+    assert result["warnings"][0]["step"] == "marking the original mail as answered"
 
 
 def test_reply_mail_copy_failure_still_marks_answered(mail: FakeMail) -> None:

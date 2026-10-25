@@ -16,6 +16,7 @@ from ..content import Attachment, get_part, part_bytes, read_content
 from ..errors import MailError
 from ..permissions import guard
 from .common import (
+    PostSendWarning,
     after_send,
     authorize_attachments,
     deliver,
@@ -63,6 +64,7 @@ async def create_draft(
     to: list[str],
     subject: str,
     body: str,
+    *,
     cc: list[str] | None = None,
     bcc: list[str] | None = None,
     html: str | None = None,
@@ -80,6 +82,7 @@ async def create_draft(
 async def update_draft(
     ctx: Context,
     uid: str,
+    *,
     to: list[str] | None = None,
     subject: str | None = None,
     body: str | None = None,
@@ -167,6 +170,7 @@ async def send_mail(
     to: list[str],
     subject: str,
     body: str,
+    *,
     cc: list[str] | None = None,
     bcc: list[str] | None = None,
     html: str | None = None,
@@ -174,7 +178,8 @@ async def send_mail(
     save_copy: bool = True,
 ) -> dict[str, Any]:
     """Send a mail over SMTP and keep a copy in Sent.
-    Irreversible: check recipients and content first."""
+    Irreversible: check recipients and content first. If `warnings` is present, the mail
+    was still sent; do not send it again."""
     if not (to or cc or bcc):
         raise MailError("At least one recipient is required.", code="no_recipients")
     await authorize_attachments(ctx, attachments)
@@ -188,8 +193,9 @@ async def send_mail(
 
 
 @mcp.tool()
-async def send_draft(ctx: Context, uid: str, save_copy: bool = True) -> dict[str, Any]:
-    """Send an existing draft, then move it to the Agent Trash. Irreversible."""
+async def send_draft(ctx: Context, uid: str, *, save_copy: bool = True) -> dict[str, Any]:
+    """Send an existing draft, then move it to the Agent Trash. Irreversible.
+    If `warnings` is present, the mail was still sent; do not send it again."""
     await guard.authorize(ctx, "mail.read", targets=[rights.DRAFTS])
     msg, recipients, drafts = await in_thread(_load_draft, uid)
     await guard.authorize(ctx, "mail.send", recipients=recipients)
@@ -213,13 +219,13 @@ def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
 
 def _send_draft(
     msg: EmailMessage, recipients: list[str], drafts: str, uid: str, save_copy: bool
-) -> list[str]:
+) -> list[PostSendWarning]:
     """Send the draft, then trash it and copy it to Sent over one connection.
 
     Returns the post-send warnings.
     """
     smtp.send(msg, recipients)
-    warnings: list[str] = []
+    warnings: list[PostSendWarning] = []
 
     def mailbox_steps() -> None:
         with imap.session(drafts, readonly=False) as conn:

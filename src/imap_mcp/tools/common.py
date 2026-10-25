@@ -6,7 +6,7 @@ import imaplib
 from collections.abc import Callable
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from mcp.server.mcpserver import Context
 
@@ -22,7 +22,14 @@ POST_SEND_ERRORS = (MailError, imaplib.IMAP4.error, OSError)
 MAIL_LOCALE = "fr"
 
 
-def after_send(warnings: list[str], action: str, step: Callable[[], None]) -> None:
+class PostSendWarning(TypedDict):
+    """A step that failed after the mail was already delivered."""
+
+    step: str
+    error: str
+
+
+def after_send(warnings: list[PostSendWarning], action: str, step: Callable[[], None]) -> None:
     """Run a step that follows a successful SMTP delivery.
 
     The mail has already left, so a failure becomes a warning instead of an
@@ -31,10 +38,10 @@ def after_send(warnings: list[str], action: str, step: Callable[[], None]) -> No
     try:
         step()
     except POST_SEND_ERRORS as exc:
-        warnings.append(f"The mail was sent, but {action} failed: {exc}. Do not send it again.")
+        warnings.append({"step": action, "error": str(exc)})
 
 
-def with_warnings(result: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+def with_warnings(result: dict[str, Any], warnings: list[PostSendWarning]) -> dict[str, Any]:
     if warnings:
         result["warnings"] = warnings
     return result
@@ -78,10 +85,10 @@ def save_to_sent(msg: EmailMessage, conn: imap.Connection | None = None) -> None
         imap.append(opened, sent, msg, r"\Seen")
 
 
-def deliver(msg: EmailMessage, recipients: list[str], save_copy: bool) -> list[str]:
+def deliver(msg: EmailMessage, recipients: list[str], save_copy: bool) -> list[PostSendWarning]:
     """Send the mail, then save a copy in Sent. Returns the post-send warnings."""
     smtp.send(msg, recipients)
-    warnings: list[str] = []
+    warnings: list[PostSendWarning] = []
     if save_copy:
         after_send(warnings, "saving a copy to Sent", lambda: save_to_sent(msg))
     return warnings

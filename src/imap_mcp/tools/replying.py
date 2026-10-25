@@ -15,6 +15,7 @@ from ..content import read_content
 from ..permissions import guard
 from .common import (
     MAIL_LOCALE,
+    PostSendWarning,
     after_send,
     authorize_attachments,
     deliver,
@@ -41,6 +42,7 @@ async def reply_mail(
     ctx: Context,
     uid: str,
     body: str,
+    *,
     folder: str = "INBOX",
     reply_all: bool = False,
     send: bool = False,
@@ -49,7 +51,8 @@ async def reply_mail(
     include_quote: bool = True,
 ) -> dict[str, Any]:
     """Reply to a mail (In-Reply-To, References and 'Re:' handled). Creates a DRAFT by default;
-    send=True sends now. reply_all=True keeps the other recipients in copy."""
+    send=True sends now. reply_all=True keeps the other recipients in copy.
+    If `warnings` is present, the reply was still sent; do not send it again."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     await authorize_attachments(ctx, attachments)
     reply = await in_thread(
@@ -109,7 +112,9 @@ def _build_reply(
     return _Reply(message, to, cc, subject)
 
 
-def _send_reply(msg: EmailMessage, recipients: list[str], folder: str, uid: str) -> list[str]:
+def _send_reply(
+    msg: EmailMessage, recipients: list[str], folder: str, uid: str
+) -> list[PostSendWarning]:
     """Send the reply, then flag the original as answered. Returns the post-send warnings."""
     warnings = deliver(msg, recipients, save_copy=True)
     after_send(
@@ -128,6 +133,7 @@ async def forward_mail(
     ctx: Context,
     uid: str,
     to: list[str],
+    *,
     body: str = "",
     folder: str = "INBOX",
     cc: list[str] | None = None,
@@ -135,7 +141,8 @@ async def forward_mail(
     include_attachments: bool = True,
 ) -> dict[str, Any]:
     """Forward a mail with its body and, by default, its attachments.
-    Creates a DRAFT unless send=True."""
+    Creates a DRAFT unless send=True. If `warnings` is present, the mail was still sent;
+    do not send it again."""
     await guard.authorize(ctx, "mail.read", targets=[folder])
     msg, subject = await in_thread(_build_forward, uid, folder, to, body, cc, include_attachments)
     if send:
