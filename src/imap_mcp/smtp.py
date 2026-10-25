@@ -13,6 +13,7 @@ def send(message: EmailMessage, recipients: list[str]) -> None:
     host = require(settings.smtp_host, "MAIL_SMTP_HOST or MAIL_HOST")
     context = ssl.create_default_context()
     implicit_tls = settings.smtp_port == 465
+    server: smtplib.SMTP
     if implicit_tls:
         server = smtplib.SMTP_SSL(
             host, settings.smtp_port, context=context, timeout=TIMEOUT)
