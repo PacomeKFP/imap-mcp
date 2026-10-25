@@ -8,10 +8,16 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Security
 
+- **Rupture :** les identifiants ne sont plus lus depuis les variables d'environnement `MAIL_USER` et `MAIL_PASSWORD`, qui sont ignorées. Les identifiants se lisent uniquement dans le trousseau système ; lancer `imap-mcp setup` pour les enregistrer.
 - Les certificats TLS du serveur IMAP sont désormais vérifiés. `MAIL_TLS_INSECURE=1` permet de désactiver cette vérification (à réserver aux serveurs de test).
 - Correction d'une injection de commandes IMAP : les caractères de contrôle dans les valeurs envoyées au serveur (chaînes entre guillemets, littéraux de recherche, ensembles d'UID) sont rejetés.
 - Correction d'un contournement des droits par alias de dossier.
 - Les lectures contrôlent désormais les droits sur le dossier source.
+
+### Changed
+
+- **Rupture :** les variables `MAIL_USER` et `MAIL_PASSWORD` ne sont plus utilisées. Migration : `imap-mcp setup`, puis retirer ces variables de la configuration du client MCP.
+- Les identifiants du trousseau sont mis en cache pendant la durée du processus : redémarrer le serveur MCP après un `imap-mcp setup`.
 
 ### Fixed
 

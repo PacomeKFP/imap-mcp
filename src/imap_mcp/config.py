@@ -1,7 +1,8 @@
-"""Configuration read from environment variables, and credentials (variables or keyring)."""
+"""Configuration read from environment variables, and credentials read from the system keyring."""
 
 from __future__ import annotations
 
+import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ SERVICE = "imap-mcp"
 TIMEOUT = 40
 AGENT_DIR = ".imap-mcp"
 ACCOUNT_KEY = "user"  # keyring entry that holds the account address
+SETUP_HINT = "run `imap-mcp setup` to store them in the system keyring"
 
 
 def _flag(name: str) -> bool:
@@ -81,24 +83,19 @@ def require(value: str, variable: str) -> str:
     return value
 
 
+@functools.lru_cache(maxsize=1)
 def get_credentials() -> tuple[str, str]:
-    """Address and password: environment variables first, then the system keyring."""
-    user = os.environ.get("MAIL_USER") or None
-    password = os.environ.get("MAIL_PASSWORD") or None
-    if not (user and password):
-        user, password = _from_keyring(user, password)
-    if not (user and password):
-        raise ConfigError(
-            "Credentials missing: set MAIL_USER and MAIL_PASSWORD, or run `imap-mcp setup`."
-        )
-    return user, password
+    """Address and password from the system keyring only, cached for the process.
 
-
-def _from_keyring(user: str | None, password: str | None) -> tuple[str | None, str | None]:
+    Call `get_credentials.cache_clear()` to read the keyring again.
+    """
     try:
-        user = user or keyring.get_password(SERVICE, ACCOUNT_KEY)
-        if user and not password:
-            password = keyring.get_password(SERVICE, user)
-    except KeyringError:
-        pass
+        user = keyring.get_password(SERVICE, ACCOUNT_KEY)
+        password = keyring.get_password(SERVICE, user) if user else None
+    except KeyringError as exc:
+        raise ConfigError(
+            f"Credentials unavailable from the system keyring ({exc}): {SETUP_HINT}."
+        ) from exc
+    if not (user and password):
+        raise ConfigError(f"Credentials missing: {SETUP_HINT}.")
     return user, password

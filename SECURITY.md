@@ -24,4 +24,10 @@ Préciser si possible :
 
 ## Modèle de menace
 
-Les limites connues (injection de prompt par le contenu des mails, nature client-side du contrôle des droits) sont décrites dans la section « Modèle de menace et limites » du [README](README.md). Un signalement qui porte sur ces limites reste bienvenu, mais elles sont déjà documentées.
+Les limites connues (injection de prompt par le contenu des mails, nature client-side du contrôle des droits, identifiants lisibles par tout processus du même utilisateur système) sont décrites dans la section « Modèle de menace et limites » du [README](README.md). Un signalement qui porte sur ces limites reste bienvenu, mais elles sont déjà documentées.
+
+## Stockage des identifiants
+
+Le mot de passe est stocké uniquement dans le trousseau système, via `imap-mcp setup`. Il n'est jamais lu depuis les variables d'environnement (`MAIL_USER` et `MAIL_PASSWORD` sont ignorées) et n'est écrit dans aucun fichier du projet.
+
+Le trousseau est accessible à tout processus lancé sous le même compte utilisateur système. Un agent disposant d'un accès shell peut donc le lire et contourner le serveur. La protection réelle consiste à limiter le compte côté serveur de messagerie (compte en lecture seule ou mot de passe d'application limité).

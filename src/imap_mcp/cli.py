@@ -31,7 +31,7 @@ def setup_credentials() -> int:
     except KeyringError as exc:
         print(f"System keyring unavailable: {exc}", file=sys.stderr)
         return 1
-    print("Credentials saved in the system keyring.")
+    print("Credentials saved in the system keyring. Restart the MCP server to load them.")
     return 0
 
 

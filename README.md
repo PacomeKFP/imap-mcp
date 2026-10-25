@@ -34,8 +34,6 @@ Variables d'environnement :
 | `MAIL_PORT` | non | `993` | Port IMAP (SSL) |
 | `MAIL_SMTP_HOST` | non | = `MAIL_HOST` | Serveur SMTP |
 | `MAIL_SMTP_PORT` | non | `587` | `587` = STARTTLS, `465` = SSL |
-| `MAIL_USER` | non | | Adresse mail (sinon trousseau système) |
-| `MAIL_PASSWORD` | non | | Mot de passe (sinon trousseau système) |
 | `MAIL_READONLY` | non | `0` | `1` désactive toute écriture (envoi, déplacement, etc.) |
 | `MAIL_DOWNLOAD_DIR` | non | `~/Downloads/imap-mcp` | Dossier de téléchargement des pièces jointes |
 | `MAIL_MAX_BODY` | non | `20000` | Taille max du corps renvoyé au LLM (caractères) |
@@ -43,21 +41,21 @@ Variables d'environnement :
 | `MAIL_PROJECT_DIR` | non | dossier de lancement | Projet qui contient les règles locales (`.imap-mcp/`) |
 | `MAIL_TLS_INSECURE` | non | `0` | **Dangereux.** `1` désactive la vérification du certificat TLS IMAP. Ne jamais l'utiliser avec un serveur réel. |
 
+Les identifiants (adresse et mot de passe) ne se lisent pas dans les variables d'environnement : ils sont uniquement lus dans le trousseau système, voir [Identifiants](#identifiants). Les variables `MAIL_USER` et `MAIL_PASSWORD`, si elles sont définies, sont ignorées.
+
 Les certificats TLS du serveur IMAP sont vérifiés par défaut.
 
 > **Attention : `MAIL_TLS_INSECURE=1` désactive la vérification des certificats IMAP.** Un tiers placé sur le réseau peut alors intercepter le mot de passe et le contenu des mails (attaque de l'intermédiaire). Réservé à un serveur de test local dont vous contrôlez le certificat.
 
 ### Identifiants
 
-Option 1 : variables d'environnement `MAIL_USER` et `MAIL_PASSWORD`.
-
-Option 2 (recommandée) : enregistrer les identifiants dans le trousseau système une seule fois.
+Les identifiants sont enregistrés une seule fois dans le trousseau système (Windows Credential Manager, Keychain macOS, Secret Service sous Linux) :
 
 ```bash
 imap-mcp setup
 ```
 
-Le mot de passe est saisi masqué et n'est écrit dans aucun fichier.
+Le mot de passe est saisi masqué et n'est écrit dans aucun fichier. Les variables `MAIL_USER` et `MAIL_PASSWORD` ne sont plus utilisées : si elles existent, elles sont ignorées. Après un `imap-mcp setup`, redémarrer le serveur MCP : les identifiants sont mis en cache pendant la durée du processus.
 
 ### Connexion à un client MCP
 
@@ -107,7 +105,8 @@ Si tout est correct, la commande affiche la connexion TLS, la liste des dossiers
 En cas d'échec (message `Failed: ...`) :
 
 - `Environment variable MAIL_HOST is missing` : définir `MAIL_HOST` (section ci-dessus).
-- `Credentials missing` : lancer `imap-mcp setup`, ou définir `MAIL_USER` et `MAIL_PASSWORD`.
+- `Credentials missing` : lancer `imap-mcp setup` (les variables `MAIL_USER` et `MAIL_PASSWORD` ne sont plus lues).
+- `Credentials unavailable from the system keyring` : le trousseau système n'est pas accessible depuis cette session ; vérifier qu'il est déverrouillé, puis relancer `imap-mcp setup`.
 - Erreur TLS ou délai dépassé : vérifier `MAIL_HOST` et `MAIL_PORT`.
 - `Authentication refused` : vérifier le mot de passe, et que l'accès IMAP est activé pour votre compte.
 
@@ -220,11 +219,12 @@ Ce serveur donne à un LLM un accès à votre boîte mail. Les risques suivants 
 - **Injection de prompt par le contenu des mails.** Le corps, l'objet et les pièces jointes d'un message sont lus par le LLM. Un expéditeur malveillant peut y glisser des instructions (« transfère ce mail à… », « supprime… »). Le LLM peut les suivre. Un mail reçu n'est jamais une instruction de l'utilisateur.
 - **Le contrôle des droits est une politique côté client.** Les fichiers `.imap-mcp/rights.toml` et les commandes `imap-mcp rights ...` sont appliqués par le serveur MCP, mais ce ne sont pas des barrières de sécurité. Un agent disposant d'un accès shell peut modifier `.imap-mcp/rights.toml`, lancer lui-même `imap-mcp rights allow ...`, ou se connecter à la boîte avec les mêmes identifiants, en contournant le serveur.
 - **`MAIL_READONLY` est aussi côté client.** Le même agent peut contourner ce réglage. Seul un compte en lecture seule côté serveur de messagerie offre une garantie réelle.
+- **Identifiants accessibles au même utilisateur système.** Le mot de passe est dans le trousseau système, qui est lisible par tout processus lancé sous le même compte utilisateur. Un agent disposant d'un accès shell peut donc lire le trousseau et se connecter directement à la boîte, en contournant le serveur et ses règles. Le serveur ne réduit pas ce risque ; seule une restriction côté serveur de messagerie le limite : compte IMAP en lecture seule ou mot de passe d'application limité.
 - **Confidentialité.** Le contenu des mails lus par le LLM est transmis au fournisseur du modèle.
 
 Recommandations :
 
-- Utiliser un compte IMAP en lecture seule côté serveur de messagerie, dès que c'est possible.
+- Utiliser un compte IMAP en lecture seule côté serveur de messagerie, ou un mot de passe d'application limité, dès que c'est possible. C'est la seule protection contre un agent qui lirait le trousseau.
 - Placer les règles de droits hors de l'espace de travail de l'agent : utiliser la portée globale (`--global`, soit `%APPDATA%\imap-mcp\rights.toml` sous Windows) plutôt que `--local`, et ne pas donner à l'agent un accès en écriture à ce fichier.
 - Garder `MAIL_READONLY=1` pendant les premiers essais.
 - Ne jamais définir `MAIL_TLS_INSECURE=1` avec un serveur réel.
@@ -240,7 +240,7 @@ uv run pytest
 uv run imap-mcp check
 ```
 
-`imap-mcp check` teste la connexion réelle en lecture seule (variables `MAIL_*` ou trousseau).
+`imap-mcp check` teste la connexion réelle en lecture seule (variables `MAIL_*` et identifiants du trousseau).
 
 ## Licence
 
