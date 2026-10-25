@@ -24,15 +24,18 @@ ROLE_ALIASES: dict[str, str] = {
 }
 
 
-def _allowlisted(action: str, recipients: Sequence[str], layers: list[rights.Layer]) -> bool:
+def _allowlisted(
+    action: rights.Action | str, recipients: Sequence[str], layers: list[rights.Layer]
+) -> bool:
     """True when every recipient of a mail.send is already allowlisted in some layer."""
-    if action != "mail.send" or not recipients:
+    if action != rights.Action.MAIL_SEND or not recipients:
         return False
-    allowlist = [entry for _, content in layers for entry in content.recipients]
+    allowlist = [entry for layer in layers for entry in layer.content.recipients]
     return all(rights.recipient_allowed(allowlist, address) for address in recipients)
 
 
 def new_session_id() -> str:
+    """A new session id: a UTC timestamp plus a random suffix, so ids sort by start time."""
     return f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
 
 
@@ -49,11 +52,11 @@ def counterparts(target: str | None, roles: Mapping[str, str]) -> list[str | Non
 
 def effective_decision(
     layers: Sequence[rights.Layer],
-    action: str,
+    action: rights.Action | str,
     target: str | None,
     roles: Mapping[str, str],
     separator: str,
-) -> tuple[str, str]:
+) -> tuple[rights.Decision, str]:
     """Strictest explicit decision over the target and its counterparts, else the target's default."""
     results = [
         rights.decide(layers, action, name, separator) for name in counterparts(target, roles)
@@ -92,12 +95,13 @@ class Guard:
         self.roles: dict[str, str] | None = None  # alias -> real folder name, resolved once
 
     def layers(self) -> list[rights.Layer]:
+        """Rights of every layer in precedence order, read fresh from disk."""
         return rights.load_layers(self.config, self.session_id)
 
     async def authorize(
         self,
         ctx: Context,
-        action: str,
+        action: rights.Action | str,
         *,
         targets: Sequence[str | None] = (),
         recipients: Sequence[str] = (),
@@ -106,17 +110,17 @@ class Guard:
         """Return if the action may run; else raise MailError. Asks the user if needed."""
         wanted: list[str | None] = list(targets) or [None]
         if self.config.read_only and action in rights.WRITE_ACTIONS:
-            denials = [(t, rights.DENY, "config") for t in wanted]
+            denials = [rights.Verdict(t, rights.DENY, "config") for t in wanted]
             self._record(action, denials, recipients, "read_only")
             raise MailError(
                 f"{action} is blocked: the server is read-only (MAIL_READONLY=1).", code="read_only"
             )
         verdicts, layers = await self._verdicts(action, wanted)
-        if any(decision == rights.DENY for _, decision, _ in verdicts):
+        if any(verdict.decision == rights.DENY for verdict in verdicts):
             self._record(action, verdicts, recipients, "denied")
-            denied = describe_targets([target for target, _, _ in verdicts])
+            denied = describe_targets([verdict.target for verdict in verdicts])
             raise MailError(f"{action} is denied for {denied}.", code="denied")
-        asks = [target for target, decision, _ in verdicts if decision == rights.ASK]
+        asks = [verdict.target for verdict in verdicts if verdict.decision == rights.ASK]
         if not asks:
             self._record(action, verdicts, recipients, "allowed")
             return
@@ -139,7 +143,7 @@ class Guard:
         self._record(action, verdicts, recipients, choice)
 
     async def _verdicts(
-        self, action: str, wanted: list[str | None]
+        self, action: rights.Action | str, wanted: list[str | None]
     ) -> tuple[list[rights.Verdict], list[rights.Layer]]:
         """Resolve the folder separator once, then the decision for each target."""
         if self.separator is None and any(t is not None and not t.startswith("@") for t in wanted):
@@ -148,7 +152,7 @@ class Guard:
         roles = await self._roles(wanted)
         separator = self.separator or "/"
         verdicts = [
-            (target, *effective_decision(layers, action, target, roles, separator))
+            rights.Verdict(target, *effective_decision(layers, action, target, roles, separator))
             for target in wanted
         ]
         return verdicts, layers
@@ -162,10 +166,12 @@ class Guard:
                 return {}
         return self.roles or {}
 
-    def _remember(self, action: str, asks: list[str | None], recipients: Sequence[str]) -> None:
+    def _remember(
+        self, action: rights.Action | str, asks: list[str | None], recipients: Sequence[str]
+    ) -> None:
         path = rights.session_file(self.config, self.session_id)
         content = rights.load(path)
-        if action == "mail.send":
+        if action == rights.Action.MAIL_SEND:
             rights.add_recipients(content, recipients)
         else:
             for target in asks:
@@ -173,13 +179,18 @@ class Guard:
         rights.save(path, content)
 
     def _record(
-        self, action: str, verdicts: list[rights.Verdict], recipients: Sequence[str], outcome: str
+        self,
+        action: rights.Action | str,
+        verdicts: list[rights.Verdict],
+        recipients: Sequence[str],
+        outcome: str,
     ) -> None:
         journal.record(self.config, self.session_id, action, verdicts, recipients, outcome)
 
 
-def _hint(action: str, session_id: str) -> str:
-    if action == "mail.send":
+def _hint(action: rights.Action | str, session_id: str) -> str:
+    """The rights command that grants the action for this session, quoting the session id."""
+    if action == rights.Action.MAIL_SEND:
         return f"imap-mcp rights allow mail.send --recipient ADDRESS --session {session_id}"
     return f"imap-mcp rights allow {action} [--folder FOLDER] --session {session_id}"
 

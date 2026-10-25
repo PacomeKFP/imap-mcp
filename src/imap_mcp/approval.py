@@ -9,14 +9,19 @@ from mcp.server.mcpserver import Context
 from mcp.shared.exceptions import MCPError
 from pydantic import BaseModel
 
+from .rights import Action
+
 LISTED_RECIPIENTS = 10
 
 
 class _Choice(BaseModel):
+    """The answer the user gives to an approval prompt."""
+
     choice: Literal["once", "session", "refuse"]
 
 
 def describe_targets(targets: Sequence[str | None]) -> str:
+    """Comma-separated names of the named targets, or 'any target' when there are none."""
     named = [target for target in targets if target]
     return ", ".join(named) if named else "any target"
 
@@ -24,7 +29,8 @@ def describe_targets(targets: Sequence[str | None]) -> str:
 def describe_request(
     action: str, asks: Sequence[str | None], recipients: Sequence[str], detail: str
 ) -> str:
-    if action == "mail.send" and recipients:
+    """The approval question shown to the user for one guarded action."""
+    if action == Action.MAIL_SEND and recipients:
         shown = ", ".join(recipients[:LISTED_RECIPIENTS])
         if len(recipients) > LISTED_RECIPIENTS:
             shown += f" and {len(recipients) - LISTED_RECIPIENTS} more"

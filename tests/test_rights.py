@@ -99,3 +99,55 @@ def test_invalid_rights_file_is_rejected(tmp_path):
     with pytest.raises(MailError) as info:
         rights.load(path)
     assert info.value.code == "rights_invalid"
+
+
+def test_action_members_compare_and_hash_like_plain_strings():
+    assert rights.Action.MAIL_READ == "mail.read"
+    assert hash(rights.Action.MAIL_READ) == hash("mail.read")
+    assert {"mail.read": 1}[rights.Action.MAIL_READ] == 1
+    assert rights.Action.MAIL_READ in {"mail.read"}
+    assert rights.Action("mail.read") is rights.Action.MAIL_READ
+
+
+def test_action_renders_its_value():
+    assert str(rights.Action.MAIL_READ) == "mail.read"
+    assert f"{rights.Action.MAIL_SEND}" == "mail.send"
+    assert f"{rights.Decision.ALLOW:<6}|" == "allow |"
+
+
+def test_module_aliases_are_the_enum_members():
+    assert ALLOW == rights.Decision.ALLOW
+    assert ASK == rights.Decision.ASK
+    assert DENY == rights.Decision.DENY
+    assert set(rights.DECISIONS) == set(rights.Decision)
+    assert set(rights.ACTIONS) == set(rights.Action)
+    assert len(rights.ACTIONS) == 12
+    assert rights.WRITE_ACTIONS <= rights.ACTIONS
+
+
+def test_rule_coerces_plain_strings_to_enum_members():
+    rule = Rule("mail.move", "allow", "Clients")
+    assert rule.action is rights.Action.MAIL_MOVE
+    assert rule.decision is rights.Decision.ALLOW
+    assert rule == Rule(rights.Action.MAIL_MOVE, ALLOW, "Clients")
+
+
+def test_rule_rejects_unknown_strings():
+    with pytest.raises(ValueError):
+        Rule("mail.explode", ALLOW)
+    with pytest.raises(ValueError):
+        Rule("mail.read", "maybe")
+
+
+def test_layer_and_verdict_are_named_tuples():
+    layer = rights.Layer("session", RightsFile())
+    assert layer.source == "session"
+    assert layer.content == RightsFile()
+    source, _content = layer
+    assert source == "session"
+
+    verdict = rights.Verdict("INBOX", ALLOW, "default")
+    assert (verdict.target, verdict.decision, verdict.source) == ("INBOX", ALLOW, "default")
+    _target, decision, _source = verdict
+    assert decision == ALLOW
+    assert verdict == ("INBOX", ALLOW, "default")

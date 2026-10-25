@@ -8,14 +8,15 @@ from datetime import datetime, timezone
 
 from . import rights
 from .config import Settings
+from .rights import Action
 
-READ_ACTIONS = frozenset({"account.read", "folder.read", "mail.read"})
+READ_ACTIONS = frozenset({Action.ACCOUNT_READ, Action.FOLDER_READ, Action.MAIL_READ})
 
 
 def record(
     config: Settings,
     session_id: str,
-    action: str,
+    action: rights.Action | str,
     verdicts: Sequence[rights.Verdict],
     recipients: Sequence[str],
     outcome: str,
@@ -26,9 +27,9 @@ def record(
     entry: dict[str, object] = {
         "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "session": session_id,
-        "action": action,
+        "action": str(action),
         "verdicts": [
-            {"target": target, "decision": decision, "source": source}
+            {"target": target, "decision": str(decision), "source": source}
             for target, decision, source in verdicts
         ],
         "outcome": outcome,

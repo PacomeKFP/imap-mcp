@@ -17,9 +17,12 @@ from .errors import MailError
 
 LATEST = "latest"
 SECONDS_PER_DAY = 86_400
+# Plain strings: argparse shows choices in error messages, and enum reprs would be noisy.
+ACTION_CHOICES = sorted(action.value for action in rights.Action)
 
 
 def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register the `rights` command and its subcommands on the main parser."""
     parser = commands.add_parser("rights", help="manage access rules and recipient allowlists")
     sub = parser.add_subparsers(dest="rights_command", metavar="COMMAND", required=True)
     for name, decision, text in (
@@ -40,7 +43,7 @@ def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     _session_argument(item)
     item = sub.add_parser("explain", help="show the decision for an action on a folder")
     item.set_defaults(func=_explain)
-    item.add_argument("action", choices=sorted(rights.ACTIONS))
+    item.add_argument("action", choices=ACTION_CHOICES)
     item.add_argument("--folder")
     _session_argument(item)
     item = sub.add_parser("prune", help="delete old session folders; the newest one is kept")
@@ -49,6 +52,7 @@ def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 
 
 def run(args: argparse.Namespace, config: Settings | None = None) -> int:
+    """Run the chosen rights subcommand and return its exit code."""
     handler: Callable[[argparse.Namespace, Settings], int] = args.func
     try:
         return handler(args, config if config is not None else default_settings)
@@ -58,7 +62,7 @@ def run(args: argparse.Namespace, config: Settings | None = None) -> int:
 
 
 def _rule_arguments(item: argparse.ArgumentParser) -> None:
-    item.add_argument("action", choices=sorted(rights.ACTIONS))
+    item.add_argument("action", choices=ACTION_CHOICES)
     item.add_argument("--folder", help="folder path; its sub-folders are included")
     item.add_argument(
         "--recipient",
