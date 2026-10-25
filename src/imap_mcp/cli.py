@@ -13,8 +13,8 @@ import keyring
 from keyring.errors import KeyringError
 
 from . import imap, rights_cli
-from .config import ACCOUNT_KEY, SERVICE, get_credentials, settings
-from .errors import MailError
+from .config import ACCOUNT_KEY, SERVICE, get_credentials, get_settings
+from .errors import ConfigError, MailError
 from .tools import run as run_server
 
 
@@ -64,6 +64,7 @@ def _print_folders(conn: imap.Connection) -> None:
 def check_connection() -> int:
     """Check connection and authentication; create the Agent Trash folder unless read-only."""
     try:
+        settings = get_settings()
         user, _ = get_credentials()
         with imap.session() as conn:
             print(
@@ -89,11 +90,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     rights_cli.add_parser(commands)
     args = parser.parse_args(argv)
     command = args.command or "serve"
-    if command == "setup":
-        return setup_credentials()
-    if command == "check":
-        return check_connection()
-    if command == "rights":
-        return rights_cli.run(args)
+    try:
+        if command == "setup":
+            return setup_credentials()
+        if command == "check":
+            return check_connection()
+        if command == "rights":
+            return rights_cli.run(args)
+        get_settings()  # fail fast on an invalid environment, before serving
+    except ConfigError as exc:
+        print(f"Failed: {exc}", file=sys.stderr)
+        return 1
     run_server()
     return 0

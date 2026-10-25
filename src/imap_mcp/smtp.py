@@ -6,7 +6,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-from .config import TIMEOUT, get_credentials, require, settings
+from .config import get_credentials, require, settings
 
 
 def send(message: EmailMessage, recipients: list[str]) -> None:
@@ -16,9 +16,11 @@ def send(message: EmailMessage, recipients: list[str]) -> None:
     implicit_tls = settings.smtp_port == 465
     server: smtplib.SMTP
     if implicit_tls:
-        server = smtplib.SMTP_SSL(host, settings.smtp_port, context=context, timeout=TIMEOUT)
+        server = smtplib.SMTP_SSL(
+            host, settings.smtp_port, context=context, timeout=settings.timeout
+        )
     else:
-        server = smtplib.SMTP(host, settings.smtp_port, timeout=TIMEOUT)
+        server = smtplib.SMTP(host, settings.smtp_port, timeout=settings.timeout)
     with server as smtp:
         if not implicit_tls:
             smtp.starttls(context=context)

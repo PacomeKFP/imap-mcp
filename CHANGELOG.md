@@ -18,13 +18,18 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 - **Rupture :** les variables `MAIL_USER` et `MAIL_PASSWORD` ne sont plus utilisées. Migration : `imap-mcp setup`, puis retirer ces variables de la configuration du client MCP.
 - Les identifiants du trousseau sont mis en cache pendant la durée du processus : redémarrer le serveur MCP après un `imap-mcp setup`.
+- Les réglages sont chargés à la première utilisation et non plus à l'import : `imap-mcp --help` fonctionne même si la configuration est invalide.
+- Une configuration invalide (ou des identifiants absents) affiche `Failed: ...` et quitte avec le code 1, au lieu d'une trace d'erreur.
+- Les ports (`MAIL_PORT`, `MAIL_SMTP_PORT`) doivent être compris entre 1 et 65535 ; `MAIL_MAX_BODY` et `MAIL_TIMEOUT` doivent être positifs. Une valeur invalide produit une erreur explicite.
 
 ### Fixed
 
 - Les envois non idempotents (envoi, réponse, transfert) signalent un avertissement au lieu d'une erreur lorsque le message a été remis mais qu'une étape ultérieure a échoué.
+- `MAIL_DOWNLOAD_DIR` accepte le préfixe `~` (développé vers le dossier personnel).
 
 ### Added
 
+- Variable `MAIL_TIMEOUT` (défaut `40` secondes) pour régler le délai des connexions IMAP et SMTP.
 - Intégration continue GitHub Actions : lint, vérification du format, vérification des types et tests sur Ubuntu, Windows et macOS, avec Python 3.10, 3.12 et 3.14.
 - Hooks pre-commit (ruff et ruff-format).
 - Configuration de ruff, mypy et coverage dans `pyproject.toml`.

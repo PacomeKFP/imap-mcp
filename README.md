@@ -31,12 +31,13 @@ Variables d'environnement :
 | Variable | Obligatoire | Défaut | Rôle |
 |---|---|---|---|
 | `MAIL_HOST` | oui | | Serveur IMAP (ex. `imap.example.com`) |
-| `MAIL_PORT` | non | `993` | Port IMAP (SSL) |
+| `MAIL_PORT` | non | `993` | Port IMAP (SSL), entre 1 et 65535 |
 | `MAIL_SMTP_HOST` | non | = `MAIL_HOST` | Serveur SMTP |
-| `MAIL_SMTP_PORT` | non | `587` | `587` = STARTTLS, `465` = SSL |
+| `MAIL_SMTP_PORT` | non | `587` | `587` = STARTTLS, `465` = SSL, entre 1 et 65535 |
+| `MAIL_TIMEOUT` | non | `40` | Délai maximal (secondes) des connexions IMAP et SMTP, entier positif |
 | `MAIL_READONLY` | non | `0` | `1` désactive toute écriture (envoi, déplacement, etc.) |
-| `MAIL_DOWNLOAD_DIR` | non | `~/Downloads/imap-mcp` | Dossier de téléchargement des pièces jointes |
-| `MAIL_MAX_BODY` | non | `20000` | Taille max du corps renvoyé au LLM (caractères) |
+| `MAIL_DOWNLOAD_DIR` | non | `~/Downloads/imap-mcp` | Dossier de téléchargement des pièces jointes (`~` est développé) |
+| `MAIL_MAX_BODY` | non | `20000` | Taille max du corps renvoyé au LLM (caractères), entier positif |
 | `MAIL_AGENT_TRASH` | non | `Agent Trash` | Dossier où l'agent place les messages « supprimés ». Aucune suppression définitive n'existe. |
 | `MAIL_PROJECT_DIR` | non | dossier de lancement | Projet qui contient les règles locales (`.imap-mcp/`) |
 | `MAIL_TLS_INSECURE` | non | `0` | **Dangereux.** `1` désactive la vérification du certificat TLS IMAP. Ne jamais l'utiliser avec un serveur réel. |
