@@ -57,17 +57,6 @@ DECISIONS = frozenset(Decision)
 _STRICTNESS: dict[Decision, int] = {Decision.DENY: 0, Decision.ASK: 1, Decision.ALLOW: 2}
 
 ACTIONS = frozenset(Action)
-WRITE_ACTIONS = frozenset(
-    {
-        Action.FOLDER_CREATE,
-        Action.FOLDER_UPDATE,
-        Action.MAIL_CREATE,
-        Action.MAIL_UPDATE,
-        Action.MAIL_MOVE,
-        Action.MAIL_DELETE,
-        Action.MAIL_SEND,
-    }
-)
 _ALLOWED_BY_DEFAULT = frozenset(
     {
         Action.ACCOUNT_READ,

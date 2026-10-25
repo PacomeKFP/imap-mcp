@@ -13,7 +13,6 @@ import pytest
 
 from imap_mcp import rights, rights_cli
 from imap_mcp.config import Settings
-from imap_mcp.errors import MailError
 from imap_mcp.permissions import Guard
 
 SettingsFactory = Callable[..., Settings]
@@ -81,21 +80,6 @@ def test_every_authorize_refreshes_the_marker(
     set_age(marker, 3 * DAY)
     asyncio.run(guard.authorize(None, rights.Action.MAIL_READ))  # type: ignore[arg-type]
     assert time.time() - marker.stat().st_mtime < 60
-
-
-def test_read_only_refusal_still_marks_the_session_active(
-    tmp_path: Path, make_settings: SettingsFactory
-) -> None:
-    config = make_settings(tmp_path, read_only=True)
-    with pytest.raises(MailError):
-        asyncio.run(
-            Guard(config, "s1").authorize(
-                None,  # type: ignore[arg-type]
-                rights.Action.MAIL_MOVE,
-                targets=["INBOX"],
-            )
-        )
-    assert (rights.session_dir(config, "s1") / rights.ACTIVE_FILE).is_file()
 
 
 def test_marker_failure_is_reported_and_does_not_block(

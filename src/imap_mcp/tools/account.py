@@ -25,14 +25,13 @@ class FolderRenamed(TypedDict):
 
 @mcp.tool()
 async def whoami(ctx: Context) -> dict[str, Any]:
-    """Connected address, servers, read-only mode, download folder and current session id."""
+    """Connected address, servers, download folder and current session id."""
     await guard.authorize(ctx, "account.read")
     user, _ = await in_thread(get_credentials)
     return {
         "user": user,
         "imap": f"{settings.imap_host}:{settings.imap_port}",
         "smtp": f"{settings.smtp_host}:{settings.smtp_port}",
-        "read_only": settings.read_only,
         "download_dir": str(settings.download_dir),
         "session": guard.session_id,
     }

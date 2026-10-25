@@ -17,6 +17,8 @@ SERVICE = "imap-mcp"
 TIMEOUT = 40
 AGENT_DIR = ".imap-mcp"
 ACCOUNT_KEY = "user"  # keyring entry that holds the account address
+HOST_SUFFIX = ":imap-host"  # keyring entry, suffixed by the address, that holds the IMAP server
+SMTP_SUFFIX = ":smtp-host"  # keyring entry, suffixed by the address, that holds the SMTP server
 SETUP_HINT = "run `imap-mcp setup` to store them in the system keyring"
 
 
@@ -52,7 +54,6 @@ class Settings:
     imap_port: int
     smtp_host: str
     smtp_port: int
-    read_only: bool
     download_dir: Path
     max_body: int
     agent_trash: str
@@ -62,14 +63,24 @@ class Settings:
     timeout: int = TIMEOUT  # seconds, for IMAP and SMTP connections
 
 
+def _stored_server(suffix: str) -> str:
+    """Server name saved by `imap-mcp setup` for the account in the keyring, or empty."""
+    try:
+        user = keyring.get_password(SERVICE, ACCOUNT_KEY)
+        return (keyring.get_password(SERVICE, f"{user}{suffix}") or "") if user else ""
+    except KeyringError:
+        return ""
+
+
 def load_settings() -> Settings:
-    imap_host = os.environ.get("MAIL_HOST", "").strip()
+    imap_host = os.environ.get("MAIL_HOST", "").strip() or _stored_server(HOST_SUFFIX)
     return Settings(
         imap_host=imap_host,
         imap_port=_int("MAIL_PORT", "993", maximum=65535),
-        smtp_host=os.environ.get("MAIL_SMTP_HOST", "").strip() or imap_host,
+        smtp_host=(
+            os.environ.get("MAIL_SMTP_HOST", "").strip() or _stored_server(SMTP_SUFFIX) or imap_host
+        ),
         smtp_port=_int("MAIL_SMTP_PORT", "587", maximum=65535),
-        read_only=_flag("MAIL_READONLY"),
         download_dir=Path(
             os.environ.get("MAIL_DOWNLOAD_DIR") or Path.home() / "Downloads" / SERVICE
         ).expanduser(),

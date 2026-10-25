@@ -30,16 +30,15 @@ def isolated_mail_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def make_settings() -> SettingsFactory:
     """Return a factory building test `Settings` rooted in a temporary directory.
 
-    Keyword arguments override any field, e.g. `make_settings(tmp_path, read_only=True)`.
+    Keyword arguments override any field, e.g. `make_settings(tmp_path, agent_trash="Trash")`.
     """
 
-    def factory(root: Path, read_only: bool = False, **overrides: Any) -> Settings:
+    def factory(root: Path, **overrides: Any) -> Settings:
         fields: dict[str, Any] = {
             "imap_host": "imap.test",
             "imap_port": 993,
             "smtp_host": "smtp.test",
             "smtp_port": 587,
-            "read_only": read_only,
             "download_dir": root / "downloads",
             "max_body": 1000,
             "agent_trash": "Agent Trash",

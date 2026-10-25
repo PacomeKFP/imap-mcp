@@ -115,12 +115,6 @@ class Guard:
         """Return if the action may run; else raise MailError. Asks the user if needed."""
         self._heartbeat()
         wanted: list[str | None] = list(targets) or [None]
-        if self.config.read_only and action in rights.WRITE_ACTIONS:
-            denials = [rights.Verdict(t, rights.DENY, "config") for t in wanted]
-            self._record(action, denials, recipients, "read_only")
-            raise MailError(
-                f"{action} is blocked: the server is read-only (MAIL_READONLY=1).", code="read_only"
-            )
         verdicts, layers = await self._verdicts(action, wanted)
         if any(verdict.decision == rights.DENY for verdict in verdicts):
             self._record(action, verdicts, recipients, "denied")

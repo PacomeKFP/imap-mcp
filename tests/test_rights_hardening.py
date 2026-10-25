@@ -30,8 +30,8 @@ def layer(*rules: rights.Rule, source: str = "local") -> list[rights.Layer]:
     return [(source, rights.RightsFile(list(rules)))]
 
 
-def make_guard(make_settings: SettingsFactory, tmp_path: Path, read_only: bool = False) -> Guard:
-    guard = Guard(make_settings(tmp_path, read_only=read_only), SESSION)
+def make_guard(make_settings: SettingsFactory, tmp_path: Path) -> Guard:
+    guard = Guard(make_settings(tmp_path), SESSION)
     guard.separator = "/"
     guard.roles = dict(ROLES)
     return guard

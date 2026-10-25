@@ -122,7 +122,6 @@ def test_module_aliases_are_the_enum_members():
     assert set(rights.DECISIONS) == set(rights.Decision)
     assert set(rights.ACTIONS) == set(rights.Action)
     assert len(rights.ACTIONS) == 12
-    assert rights.WRITE_ACTIONS <= rights.ACTIONS
 
 
 def test_rule_coerces_plain_strings_to_enum_members():

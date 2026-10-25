@@ -1,4 +1,4 @@
-"""Guard behaviour: read-only mode, deny, ask, session memory, allowlists and the journal."""
+"""Guard behaviour: deny, ask, session memory, allowlists and the journal."""
 
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ class FakeContext:
 def make_guard(make_settings: Callable[..., Settings]) -> GuardFactory:
     """Return a factory building a `Guard` whose settings live under the given root."""
 
-    def factory(root: Path, read_only: bool = False) -> Guard:
-        guard = Guard(make_settings(root, read_only=read_only), SESSION)
+    def factory(root: Path) -> Guard:
+        guard = Guard(make_settings(root), SESSION)
         guard.separator = "/"  # avoids a network call in tests
         return guard
 
@@ -63,18 +63,6 @@ def write_local(guard: Guard, content: rights.RightsFile) -> None:
 def test_reads_are_allowed_without_question(tmp_path: Path, make_guard: GuardFactory) -> None:
     ctx = FakeContext()
     authorize(make_guard(tmp_path), ctx, "mail.read", targets=["INBOX"])
-    assert ctx.messages == []
-
-
-def test_read_only_blocks_writes_before_any_question(
-    tmp_path: Path, make_guard: GuardFactory
-) -> None:
-    ctx = FakeContext()
-    with pytest.raises(MailError) as info:
-        authorize(
-            make_guard(tmp_path, read_only=True), ctx, "mail.move", targets=["INBOX", "Archive"]
-        )
-    assert info.value.code == "read_only"
     assert ctx.messages == []
 
 

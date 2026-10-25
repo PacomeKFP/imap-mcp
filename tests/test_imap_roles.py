@@ -84,7 +84,6 @@ def server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clock: FakeClock) ->
         imap_port=993,
         smtp_host="imap.example.org",
         smtp_port=587,
-        read_only=False,
         download_dir=tmp_path,
         max_body=20000,
         agent_trash="Agent Trash",
