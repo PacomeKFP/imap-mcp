@@ -3,14 +3,19 @@ from __future__ import annotations
 
 import asyncio
 import imaplib
+import json
+import re
+from argparse import ArgumentParser, Namespace
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp.shared.exceptions import MCPError
 
-from imap_mcp import permissions, rights
+from imap_mcp import approval, journal, permissions, rights, rights_cli
 from imap_mcp.config import Settings
 from imap_mcp.errors import MailError
 from imap_mcp.permissions import Guard, counterparts, effective_decision
@@ -144,3 +149,95 @@ def test_hint_names_the_session_for_folder_and_send_rules() -> None:
         f"imap-mcp rights allow mail.move [--folder FOLDER] --session {SESSION}")
     assert permissions._hint("mail.send", SESSION) == (
         f"imap-mcp rights allow mail.send --recipient ADDRESS --session {SESSION}")
+
+
+def test_session_ids_use_utc_and_the_expected_format() -> None:
+    session = permissions.new_session_id()
+    assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{4}", session)
+    stamp = datetime.strptime(session[:15], "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+    assert abs(datetime.now(timezone.utc) - stamp) < timedelta(minutes=1)
+
+
+def test_journal_timestamps_are_timezone_aware(tmp_path: Path, make_settings: SettingsFactory) -> None:
+    config = make_settings(tmp_path)
+    journal.record(config, SESSION, "mail.move", [("INBOX", rights.ASK, "default")], [], "refused")
+    entry = json.loads((rights.session_dir(config, SESSION) / rights.JOURNAL_FILE).read_text("utf-8"))
+    assert datetime.fromisoformat(entry["time"]).utcoffset() == timedelta(0)
+
+
+def test_save_leaves_no_temporary_file(tmp_path: Path) -> None:
+    path = tmp_path / "rights.toml"
+    rights.save(path, rights.RightsFile([rights.Rule("mail.move", rights.ALLOW, "Clients")]))
+    assert rights.load(path).rules == [rights.Rule("mail.move", rights.ALLOW, "Clients")]
+    assert not path.with_suffix(".tmp").exists()
+
+
+def test_failed_save_keeps_the_previous_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "rights.toml"
+    previous = [rights.Rule("mail.move", rights.ALLOW, "Clients")]
+    rights.save(path, rights.RightsFile(previous))
+
+    def disk_full(self: Path, target: str | Path) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", disk_full)
+    with pytest.raises(OSError):
+        rights.save(path, rights.RightsFile())
+    monkeypatch.undo()
+    assert rights.load(path).rules == previous
+    assert not path.with_suffix(".tmp").exists()
+
+
+class ElicitingContext:
+    """Context whose elicit call fails with the given exception."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def elicit(self, message: str, schema: Callable[..., Any]) -> None:
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [MCPError(-32601, "elicitation unsupported"),
+                                   RuntimeError("test double without elicitation")],
+                         ids=["mcp-error", "runtime-error"])
+def test_clients_that_cannot_elicit_map_to_none(error: Exception) -> None:
+    result = asyncio.run(approval.ask_user(ElicitingContext(error), "mail.delete", ["INBOX"], [], ""))
+    assert result is None
+
+
+def test_unexpected_elicitation_errors_propagate() -> None:
+    with pytest.raises(KeyError):
+        asyncio.run(approval.ask_user(ElicitingContext(KeyError("bug")), "mail.delete", ["INBOX"], [], ""))
+
+
+def parse(*argv: str) -> Namespace:
+    parser = ArgumentParser(prog="imap-mcp")
+    rights_cli.add_parser(parser.add_subparsers(dest="command"))
+    return parser.parse_args(["rights", *argv])
+
+
+@pytest.mark.parametrize("entry", ["bob", "@", "@@x.org", "a@b@c.org", "@b@c", "a@", "a@@b.org",
+                                   "bob@x.org@", "@a b.org", "a @b.org"])
+def test_invalid_recipient_entries_are_rejected(tmp_path: Path, make_settings: SettingsFactory,
+                                                entry: str) -> None:
+    config = make_settings(tmp_path)
+    assert rights_cli.run(parse("allow", "mail.send", "--recipient", entry, "--local"), config) == 1
+    assert not rights.local_file(config).exists()
+
+
+def test_invalid_recipient_error_has_invalid_argument_code() -> None:
+    with pytest.raises(MailError) as info:
+        rights_cli._recipient_entry("bob")
+    assert info.value.code == "invalid_argument"
+
+
+def test_recipient_entries_are_stored_lowercase_and_revoked_case_insensitively(
+        tmp_path: Path, make_settings: SettingsFactory) -> None:
+    config = make_settings(tmp_path)
+    grant = parse("allow", "mail.send", "--recipient", "Anna@Client.COM", "--recipient", "@Client.com", "--local")
+    assert rights_cli.run(grant, config) == 0
+    assert rights.load(rights.local_file(config)).recipients == ["anna@client.com", "@client.com"]
+    revoke = parse("revoke", "mail.send", "--recipient", "ANNA@client.com", "--local")
+    assert rights_cli.run(revoke, config) == 0
+    assert rights.load(rights.local_file(config)).recipients == ["@client.com"]

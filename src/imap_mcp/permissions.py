@@ -4,7 +4,7 @@ from __future__ import annotations
 import imaplib
 import secrets
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 
 from mcp.server.mcpserver import Context
 
@@ -28,7 +28,7 @@ def _allowlisted(action: str, recipients: Sequence[str], layers: list[rights.Lay
 
 
 def new_session_id() -> str:
-    return f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+    return f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
 
 
 def counterparts(target: str | None, roles: Mapping[str, str]) -> list[str | None]:
@@ -87,8 +87,8 @@ class Guard:
         """Return if the action may run; else raise MailError. Asks the user if needed."""
         wanted: list[str | None] = list(targets) or [None]
         if self.config.read_only and action in rights.WRITE_ACTIONS:
-            targets = [(t, rights.DENY, "config") for t in wanted]
-            self._record(action, targets, recipients, "read_only")
+            denials = [(t, rights.DENY, "config") for t in wanted]
+            self._record(action, denials, recipients, "read_only")
             raise MailError(f"{action} is blocked: the server is read-only (MAIL_READONLY=1).",
                             code="read_only")
         verdicts, layers = await self._verdicts(action, wanted)

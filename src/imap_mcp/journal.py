@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import rights
 from .config import Settings
@@ -17,7 +17,7 @@ def record(config: Settings, session_id: str, action: str, verdicts: Sequence[ri
     if action in READ_ACTIONS and outcome == "allowed":
         return
     entry: dict[str, object] = {
-        "time": datetime.now().isoformat(timespec="seconds"),
+        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "session": session_id,
         "action": action,
         "verdicts": [{"target": target, "decision": decision, "source": source}

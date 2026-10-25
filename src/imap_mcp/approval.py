@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from mcp.server.mcpserver import Context
+from mcp.shared.exceptions import MCPError
 from pydantic import BaseModel
 
 LISTED_RECIPIENTS = 10
@@ -39,6 +40,6 @@ async def ask_user(ctx: Context, action: str, asks: Sequence[str | None],
     message = describe_request(action, asks, recipients, detail)
     try:
         result = await ctx.elicit(message, _Choice)
-    except Exception:  # the client does not support elicitation
+    except (MCPError, ValueError, RuntimeError):  # no back-channel, client error, or bad reply
         return None
     return result.data.choice if result.action == "accept" else "refuse"

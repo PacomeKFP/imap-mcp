@@ -99,7 +99,23 @@ def _session_id(config: Settings, value: str) -> str:
 
 
 def _entries(args: argparse.Namespace) -> list[str]:
-    return [*args.recipient, *_read_entries(args.file)]
+    return [_recipient_entry(item) for item in [*args.recipient, *_read_entries(args.file)]]
+
+
+def _recipient_entry(entry: str) -> str:
+    value = entry.strip().lower()
+    if any(char.isspace() for char in value):
+        valid = False
+    elif value.startswith("@"):
+        domain = value[1:]
+        valid = bool(domain) and "@" not in domain
+    else:
+        local, separator, domain = value.partition("@")
+        valid = bool(separator and local and domain) and "@" not in domain
+    if not valid:
+        raise MailError(f"Invalid recipient entry: {entry!r} (expected address or @domain)",
+                        code="invalid_argument")
+    return value
 
 
 def _read_entries(path: str | None) -> list[str]:

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,8 +177,11 @@ def save(path: Path, content: RightsFile) -> None:
         lines += ["[[recipients]]", f"match = {_text(entry)}", ""]
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
-    temporary.write_text("\n".join(lines), encoding="utf-8")
-    os.replace(temporary, path)
+    try:
+        temporary.write_text("\n".join(lines), encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def upsert_rule(content: RightsFile, rule: Rule) -> None:
