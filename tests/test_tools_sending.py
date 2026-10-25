@@ -40,6 +40,7 @@ class FakeMail:
     def __init__(self) -> None:
         self.fail: dict[str, BaseException] = {}
         self.smtp_calls: list[list[str]] = []
+        self.sent: list[EmailMessage] = []
         self.appended: list[str] = []
         self.moved: list[str] = []
         self.stored: list[str] = []
@@ -64,6 +65,7 @@ def mail(monkeypatch: pytest.MonkeyPatch) -> FakeMail:
     def send(message: EmailMessage, recipients: list[str]) -> None:
         fake.maybe_fail("smtp")
         fake.smtp_calls.append(list(recipients))
+        fake.sent.append(message)
 
     def append(conn: object, folder: str, msg: EmailMessage, flags: str) -> None:
         fake.maybe_fail("append")
@@ -294,3 +296,61 @@ def test_forward_header_uses_mail_locale_templates() -> None:
 def test_forward_subject_keeps_existing_prefix(mail: FakeMail, subject: str, expected: str) -> None:
     mail.raw = _raw_mail(subject, ME, ALICE, "<o@x>")
     assert replying._build_forward(DRAFT_UID, "INBOX", [ALICE], "", None, True)[1] == expected
+
+
+def _draft_with_inline_logo() -> bytes:
+    msg = EmailMessage()
+    msg["From"] = ME
+    msg["To"] = ALICE
+    msg["Subject"] = "Logo"
+    msg["Message-ID"] = "<draft@example.org>"
+    msg["Date"] = "Mon, 05 Jan 2026 10:00:00 +0000"
+    msg.set_content("Hello.")
+    msg.add_alternative('<p>Hello</p><img src="cid:logo@x">', subtype="html")
+    html_body = msg.get_body(("html",))
+    assert html_body is not None
+    html_body.add_related(
+        b"\x89PNG-logo",
+        maintype="image",
+        subtype="png",
+        cid="<logo@x>",
+        filename="logo.png",
+        disposition="inline",
+    )
+    return msg.as_bytes()
+
+
+def _logo_parts(msg: EmailMessage) -> list[Any]:
+    return [part for part in msg.walk() if part.get("Content-ID") == "<logo@x>"]
+
+
+def test_body_edit_keeps_inline_image_with_content_id(mail: FakeMail) -> None:
+    revised = composing._revised_draft(
+        mime.parse(_draft_with_inline_logo()), composing.DraftEdits(body="New text")
+    )
+    assert revised.get_body(("html",)) is None
+    parts = _logo_parts(revised)
+    assert len(parts) == 1
+    assert parts[0].get_content_disposition() == "inline"
+    assert parts[0].get_filename() == "logo.png"
+
+
+def test_subject_edit_keeps_referenced_inline_image_in_html(mail: FakeMail) -> None:
+    revised = composing._revised_draft(
+        mime.parse(_draft_with_inline_logo()), composing.DraftEdits(subject="New subject")
+    )
+    assert any(p.get_content_type() == "multipart/related" for p in revised.walk())
+    html_body = revised.get_body(("html",))
+    assert html_body is not None
+    assert "cid:logo@x" in str(html_body.get_content())
+    assert len(_logo_parts(revised)) == 1
+
+
+def test_send_draft_resends_inline_image_with_content_id(mail: FakeMail) -> None:
+    mail.raw = _draft_with_inline_logo()
+    result = _run(composing.send_draft(CTX, DRAFT_UID))
+    assert result["sent"] is True
+    assert len(mail.sent) == 1
+    parts = _logo_parts(mail.sent[0])
+    assert len(parts) == 1
+    assert parts[0].get_content_disposition() == "inline"

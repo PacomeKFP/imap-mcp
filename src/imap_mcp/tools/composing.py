@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from email.message import EmailMessage
+from email.message import EmailMessage, Message
 from typing import Any
 
 from mcp.server.mcpserver import Context
@@ -12,7 +12,7 @@ from .. import imap, mime, rights, smtp
 from ..app import in_thread, mcp
 from ..compose import attach_files, build_message, copy_attachments
 from ..config import settings
-from ..content import read_content
+from ..content import Attachment, get_part, part_bytes, read_content
 from ..errors import MailError
 from ..permissions import guard
 from .common import (
@@ -109,6 +109,7 @@ def _update_draft(uid: str, edits: DraftEdits) -> dict[str, Any]:
 def _revised_draft(old: EmailMessage, edits: DraftEdits) -> EmailMessage:
     """Build the new version of a draft; fields left as None come from the old message."""
     current = read_content(old)
+    html = None if edits.body is not None else (current.html or None)
     msg = build_message(
         sender(),
         edits.to if edits.to is not None else mime.emails(old["To"]),
@@ -116,13 +117,45 @@ def _revised_draft(old: EmailMessage, edits: DraftEdits) -> EmailMessage:
         edits.body if edits.body is not None else current.text,
         cc=edits.cc if edits.cc is not None else mime.emails(old["Cc"]),
         bcc=edits.bcc if edits.bcc is not None else mime.emails(old["Bcc"]),
-        html=None if edits.body is not None else (current.html or None),
+        html=html,
         in_reply_to=mime.text_header(old, "In-Reply-To"),
         references=mime.text_header(old, "References"),
     )
-    copy_attachments(old, msg, current.attachments)
+    html_text = html or ""
+    orphans = [a for a in current.attachments if _is_orphan_inline(a, html_text)]
+    copy_attachments(old, msg, [a for a in current.attachments if a not in orphans])
+    _keep_inline_parts(old, msg, orphans)
     attach_files(msg, edits.attachments)
     return msg
+
+
+def _is_orphan_inline(attachment: Attachment, html: str) -> bool:
+    """An inline image that the HTML body no longer references, e.g. after a body edit."""
+    return (
+        attachment.inline
+        and bool(attachment.content_id)
+        and not attachment.content_type.startswith("message/")
+        and f"cid:{attachment.content_id}".lower() not in html.lower()
+    )
+
+
+def _keep_inline_parts(
+    source: Message, target: EmailMessage, attachments: list[Attachment]
+) -> None:
+    """Re-add inline images with their Content-ID and inline disposition, not as plain attachments."""
+    for attachment in attachments:
+        part = get_part(source, attachment.index)
+        if part is None:
+            continue
+        maintype, _, subtype = attachment.content_type.partition("/")
+        target.add_attachment(
+            part_bytes(part),
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=attachment.filename,
+            disposition="inline",
+            cid=f"<{attachment.content_id}>",
+        )
 
 
 @mcp.tool()
