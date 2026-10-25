@@ -60,16 +60,8 @@ select = [
 # Line length is enforced by `ruff format`, which is not blocking yet.
 ignore = ["E501"]
 
-# Temporary: findings in files outside the current cleanup scope. Remove each entry once fixed.
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
-"src/imap_mcp/approval.py" = ["BLE001"]
-"src/imap_mcp/journal.py" = ["DTZ005"]
-"src/imap_mcp/permissions.py" = ["DTZ005"]
-"src/imap_mcp/rights.py" = ["PTH105"]
-"src/imap_mcp/rights_cli.py" = ["I001"]
-"src/imap_mcp/tools/reading.py" = ["ASYNC240"]
-"tests/test_rights.py" = ["I001"]
 
 [tool.mypy]
 python_version = "3.10"
