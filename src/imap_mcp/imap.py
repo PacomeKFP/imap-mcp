@@ -111,7 +111,7 @@ def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connec
 def select(conn: Connection, folder: str, readonly: bool = True) -> int:
     """Select a folder and return its message count."""
     status, data = conn.select(quote(folder), readonly=readonly)
-    if status != "OK":
+    if status != "OK" or not data or data[0] is None:
         raise MailError(f"Folder not found or not accessible: {folder}", code="folder_not_found")
     return int(data[0])
 
@@ -131,8 +131,9 @@ def refresh_capabilities(conn: Connection) -> None:
 
 
 def has_capability(conn: Connection, name: str) -> bool:
-    caps = {(cap.decode() if isinstance(cap, bytes) else cap).upper()
-            for cap in conn.capabilities}
+    # Typeshed types capabilities as str, but refresh/imaplib paths can hold bytes.
+    advertised: Iterable[str | bytes] = conn.capabilities
+    caps = {(cap.decode() if isinstance(cap, bytes) else cap).upper() for cap in advertised}
     return name.upper() in caps
 
 
@@ -224,7 +225,9 @@ def search_uids(conn: Connection, criteria: list[str]) -> list[str]:
         if start < 0:
             raise MailError("A non-ASCII search value needs a keyword before it.",
                             code="invalid_argument")
-        conn.literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
+        literal = re.sub(r"\\(.)", r"\1", criteria[i][1:-1]).encode("utf-8")
+        # imaplib sends bytes literals as-is; typeshed wrongly declares `literal: str | None`.
+        conn.literal = literal  # type: ignore[assignment]
         tokens = criteria[:start] + criteria[i + 1:] + criteria[start:i]
         _, data = conn.uid("SEARCH", "CHARSET", "UTF-8", *tokens)
     else:
