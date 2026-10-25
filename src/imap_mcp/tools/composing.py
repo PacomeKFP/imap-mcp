@@ -26,6 +26,9 @@ from .common import (
     with_warnings,
 )
 
+_TRASH_STEP = "moving the draft to the Agent Trash"
+_SENT_STEP = "saving a copy to Sent"
+
 
 @dataclass(frozen=True)
 class DraftEdits:
@@ -211,16 +214,24 @@ def _load_draft(uid: str) -> tuple[EmailMessage, list[str], str]:
 def _send_draft(
     msg: EmailMessage, recipients: list[str], drafts: str, uid: str, save_copy: bool
 ) -> list[str]:
-    """Send the draft, then trash it and copy it to Sent. Returns the post-send warnings."""
+    """Send the draft, then trash it and copy it to Sent over one connection.
+
+    Returns the post-send warnings.
+    """
     smtp.send(msg, recipients)
     warnings: list[str] = []
-    after_send(warnings, "moving the draft to the Agent Trash", lambda: _move_to_trash(drafts, uid))
-    if save_copy:
-        after_send(warnings, "saving a copy to Sent", lambda: save_to_sent(msg))
+
+    def mailbox_steps() -> None:
+        with imap.session(drafts, readonly=False) as conn:
+            after_send(warnings, _TRASH_STEP, lambda: _move_to_trash(conn, uid))
+            if save_copy:
+                after_send(warnings, _SENT_STEP, lambda: save_to_sent(msg, conn))
+
+    after_send(warnings, "updating the mailbox", mailbox_steps)
     return warnings
 
 
-def _move_to_trash(drafts: str, uid: str) -> None:
-    with imap.session(drafts, readonly=False) as conn:
-        imap.ensure_folder(conn, settings.agent_trash)
-        imap.move(conn, imap.uid_set([uid]), settings.agent_trash)
+def _move_to_trash(conn: imap.Connection, uid: str) -> None:
+    """Move the draft to the Agent Trash; `conn` must have the drafts folder selected."""
+    imap.ensure_folder(conn, settings.agent_trash)
+    imap.move(conn, imap.uid_set([uid]), settings.agent_trash)

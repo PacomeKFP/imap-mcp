@@ -68,10 +68,14 @@ def save_draft(msg: EmailMessage) -> tuple[str, str | None]:
     return drafts, uid
 
 
-def save_to_sent(msg: EmailMessage) -> None:
+def save_to_sent(msg: EmailMessage, conn: imap.Connection | None = None) -> None:
+    """Append the message to Sent, on the given connection or on a new one."""
     sent = imap.cached_special_folder("sent")
-    with imap.session() as conn:
+    if conn is not None:
         imap.append(conn, sent, msg, r"\Seen")
+        return
+    with imap.session() as opened:
+        imap.append(opened, sent, msg, r"\Seen")
 
 
 def deliver(msg: EmailMessage, recipients: list[str], save_copy: bool) -> list[str]:

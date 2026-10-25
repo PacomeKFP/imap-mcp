@@ -44,6 +44,7 @@ class FakeMail:
         self.appended: list[str] = []
         self.moved: list[str] = []
         self.stored: list[str] = []
+        self.sessions: list[str | None] = []
         self.raw = _raw_mail("Hi", ME, ALICE, "<orig@example.org>")
 
     def maybe_fail(self, step: str) -> None:
@@ -56,8 +57,9 @@ def mail(monkeypatch: pytest.MonkeyPatch) -> FakeMail:
     fake = FakeMail()
 
     @contextmanager
-    def session(folder: str | None = None, readonly: bool = True) -> Iterator[None]:
-        yield None
+    def session(folder: str | None = None, readonly: bool = True) -> Iterator[object]:
+        fake.sessions.append(folder)
+        yield object()
 
     def cached_special_folder(role: str) -> str:
         return {"sent": SENT_FOLDER, "drafts": DRAFTS_FOLDER}[role]
@@ -183,6 +185,12 @@ def test_send_draft_success_trashes_and_copies(mail: FakeMail) -> None:
     assert "warnings" not in result
     assert mail.moved == [composing.settings.agent_trash]
     assert mail.appended == [SENT_FOLDER]
+
+
+def test_send_draft_trash_and_copy_share_one_connection(mail: FakeMail) -> None:
+    _send_draft()
+    # one connection to load the draft before SMTP, one for the trash move and Sent copy
+    assert mail.sessions == [DRAFTS_FOLDER, DRAFTS_FOLDER]
 
 
 @pytest.mark.parametrize("make_error", IMAP_FAILURES)
