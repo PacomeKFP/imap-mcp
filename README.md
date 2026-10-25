@@ -138,7 +138,7 @@ Si vous donnez le lien du dépôt à un agent (Claude, Copilot, etc.), il doit s
     "imap": {
       "type": "stdio",
       "command": "imap-mcp",
-      "env": { "MAIL_HOST": "imap.example.com", "MAIL_READONLY": "1" }
+      "env": { "MAIL_HOST": "imap.example.com" }
     }
   }
 }
