@@ -27,12 +27,18 @@ _BLOCK_TAGS = frozenset(
 _SKIP_TAGS = frozenset({"script", "style", "head"})
 
 
+_RFC822 = "message/rfc822"
+_BODY_TYPES = frozenset({"text/plain", "text/html"})
+
+
 @dataclass(frozen=True)
 class Attachment:
     index: int
     filename: str
     content_type: str
     size: int
+    content_id: str | None = None
+    inline: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +87,68 @@ def payload_bytes(part: Message) -> bytes:
     return payload if isinstance(payload, bytes) else b""
 
 
+def part_bytes(part: Message) -> bytes:
+    """Bytes of an attachment part: the decoded payload, or the serialized sub-message
+    for a message/rfc822 part."""
+    if part.get_content_type() == _RFC822:
+        payload = part.get_payload()
+        if isinstance(payload, list) and payload and isinstance(payload[0], Message):
+            return payload[0].as_bytes()
+    return payload_bytes(part)
+
+
+def _decoded_size(part: Message) -> int:
+    """Size of the decoded payload. Base64 is computed from its length; other encodings are decoded."""
+    if part.get_content_type() == _RFC822:
+        return len(part_bytes(part))
+    encoding = str(part.get("Content-Transfer-Encoding", "")).strip().lower()
+    raw = part.get_payload()
+    if encoding == "base64" and isinstance(raw, str):
+        digits = re.sub(r"[^A-Za-z0-9+/]", "", raw)
+        if len(digits) % 4 != 1:
+            return len(digits) * 3 // 4
+    return len(payload_bytes(part))
+
+
+def _content_id(part: Message) -> str | None:
+    value = str(part.get("Content-ID", "")).strip().strip("<>").strip()
+    return value or None
+
+
+def _is_attachment(part: Message) -> bool:
+    if part.get_filename() or part.get_content_disposition() == "attachment":
+        return True
+    if part.get_content_type() in _BODY_TYPES:
+        return False
+    return part.get_content_disposition() == "inline" or _content_id(part) is not None
+
+
+def _is_inline(part: Message) -> bool:
+    disposition = part.get_content_disposition()
+    return disposition == "inline" or (
+        _content_id(part) is not None and disposition != "attachment"
+    )
+
+
+def _forwarded_name(part: Message) -> str:
+    """File name for a forwarded message without one: its Subject with an .eml extension."""
+    payload = part.get_payload()
+    subject = ""
+    if isinstance(payload, list) and payload and isinstance(payload[0], Message):
+        subject = decode_text(payload[0].get("Subject"))
+    cleaned = re.sub(r'[\\/:*?"<>|\s]+', " ", subject).strip()
+    return f"{cleaned or 'message'}.eml"
+
+
+def _forwarded_descendants(msg: Message) -> set[int]:
+    """ids of the parts nested in message/rfc822 parts, whose text bodies are not used."""
+    nested: set[int] = set()
+    for part in msg.walk():
+        if part.get_content_type() == _RFC822:
+            nested.update(id(child) for child in part.walk() if child is not part)
+    return nested
+
+
 def excerpt(text: str, limit: int) -> str:
     """Cut text to limit characters, with a marker when it was cut."""
     return text if len(text) <= limit else text[:limit] + "\n[truncated]"
@@ -94,17 +162,32 @@ def _text_of(part: Message) -> str:
 
 
 def read_content(msg: Message) -> Content:
-    """Text and HTML bodies (text rebuilt from the HTML when missing) and attachments."""
+    """Text and HTML bodies (text rebuilt from the HTML when missing) and attachments.
+    Forwarded messages (message/rfc822) are listed as attachments; their text is not used."""
     text = html = ""
     attachments: list[Attachment] = []
+    forwarded = _forwarded_descendants(msg)
     for index, part in enumerate(msg.walk()):
-        if part.is_multipart():
-            continue
         content_type = part.get_content_type()
-        if part.get_filename() or part.get_content_disposition() == "attachment":
-            payload = payload_bytes(part)
-            name = decode_text(part.get_filename()) or f"part-{index}"
-            attachments.append(Attachment(index, name, content_type, len(payload)))
+        is_forwarded = content_type == _RFC822
+        if part.is_multipart() and not is_forwarded:
+            continue
+        if is_forwarded or _is_attachment(part):
+            name = decode_text(part.get_filename()) or (
+                _forwarded_name(part) if is_forwarded else f"part-{index}"
+            )
+            attachments.append(
+                Attachment(
+                    index,
+                    name,
+                    content_type,
+                    _decoded_size(part),
+                    _content_id(part),
+                    _is_inline(part),
+                )
+            )
+        elif id(part) in forwarded:
+            continue
         elif content_type == "text/plain" and not text:
             text = _text_of(part)
         elif content_type == "text/html" and not html:
@@ -115,8 +198,9 @@ def read_content(msg: Message) -> Content:
 
 
 def get_part(msg: Message, index: int) -> Message | None:
-    """Non-multipart part at the index numbered by read_content."""
+    """Part at the index numbered by read_content: a leaf part or a message/rfc822 part."""
     for i, part in enumerate(msg.walk()):
         if i == index:
-            return None if part.is_multipart() else part
+            is_leaf = not part.is_multipart() or part.get_content_type() == _RFC822
+            return part if is_leaf else None
     return None

@@ -9,13 +9,14 @@ import pytest
 
 from imap_mcp import mime
 from imap_mcp.compose import (
+    add_bytes,
     attach_files,
     build_message,
     copy_attachments,
     prefixed,
     quote_reply,
 )
-from imap_mcp.content import Attachment, get_part, read_content
+from imap_mcp.content import Attachment, get_part, part_bytes, read_content
 from imap_mcp.errors import MailError
 
 
@@ -323,3 +324,98 @@ def test_sort_key_accepts_rfc2822_dates() -> None:
 def test_sort_key_unparseable_is_minimum(value: object) -> None:
     assert mime.sort_key(value).year == 1
     assert mime.sort_key(value) < mime.sort_key("2000-01-01T00:00:00+00:00")
+
+
+def _source_with_inline_logo() -> Message:
+    source = EmailMessage()
+    source["From"] = "ann@x.org"
+    source["Subject"] = "Logo"
+    source.set_content("text")
+    source.add_alternative('<p><img src="cid:logo@x"></p>', subtype="html")
+    source.get_body(("html",)).add_related(  # type: ignore[union-attr]
+        b"PNGDATA",
+        maintype="image",
+        subtype="png",
+        cid="<logo@x>",
+        filename="logo.png",
+        disposition="inline",
+    )
+    source.add_attachment(b"%PDF-1.4", maintype="application", subtype="pdf", filename="doc.pdf")
+    return mime.parse(source.as_bytes())
+
+
+def test_copy_attachments_adds_referenced_inline_image_as_related_to_html() -> None:
+    source = _source_with_inline_logo()
+    target = build_message(
+        "bob@x.org", ["carol@x.org"], "Fwd", "text", html='<p><img src="cid:logo@x"></p>'
+    )
+
+    copy_attachments(source, target, read_content(source).attachments)
+
+    parsed = mime.parse(target.as_bytes())
+    related = [p for p in parsed.walk() if p.get_content_type() == "multipart/related"]
+    assert len(related) == 1
+    parts = list(related[0].iter_parts())
+    assert [p.get_content_type() for p in parts] == ["text/html", "image/png"]
+    image = parts[1]
+    assert image["Content-ID"] == "<logo@x>"
+    assert image.get_content_disposition() == "inline"
+    assert image.get_payload(decode=True) == b"PNGDATA"
+    assert "doc.pdf" not in [p.get_filename() for p in related[0].walk()]
+    attachments = read_content(parsed).attachments
+    assert [a.filename for a in attachments] == ["logo.png", "doc.pdf"]
+    assert attachments[0].inline is True
+    assert attachments[1].inline is False
+
+
+def test_copy_attachments_inline_image_without_html_body_is_a_regular_attachment() -> None:
+    source = _source_with_inline_logo()
+    target = build_message("bob@x.org", ["carol@x.org"], "Fwd", "text")
+    logo = [a for a in read_content(source).attachments if a.filename == "logo.png"]
+
+    copy_attachments(source, target, logo)
+
+    parsed = mime.parse(target.as_bytes())
+    assert not any(p.get_content_type() == "multipart/related" for p in parsed.walk())
+    attachments = read_content(parsed).attachments
+    assert [(a.filename, a.content_type) for a in attachments] == [("logo.png", "image/png")]
+
+
+def test_copy_attachments_unreferenced_inline_image_is_a_regular_attachment() -> None:
+    source = _source_with_inline_logo()
+    target = build_message("bob@x.org", ["carol@x.org"], "Fwd", "text", html="<p>no image</p>")
+    logo = [a for a in read_content(source).attachments if a.filename == "logo.png"]
+
+    copy_attachments(source, target, logo)
+
+    parsed = mime.parse(target.as_bytes())
+    assert not any(p.get_content_type() == "multipart/related" for p in parsed.walk())
+
+
+def test_add_bytes_attaches_message_rfc822_as_a_forwarded_message() -> None:
+    target = build_message("bob@x.org", ["carol@x.org"], "Fwd", "text")
+    inner = b"Subject: Inner\r\nFrom: ann@x.org\r\n\r\ninner body\r\n"
+
+    add_bytes(target, inner, "message/rfc822", "inner.eml")
+
+    parsed = mime.parse(target.as_bytes())
+    attachments = read_content(parsed).attachments
+    assert [(a.filename, a.content_type) for a in attachments] == [("inner.eml", "message/rfc822")]
+    part = get_part(parsed, attachments[0].index)
+    assert part is not None
+    assert b"inner body" in part_bytes(part)
+
+
+def test_quote_reply_uses_the_requested_locale() -> None:
+    original = mime.parse(
+        b"From: Ann <ann@x.org>\r\nDate: Mon, 1 Jan 2024 10:00:00 +0000\r\n"
+        b"Subject: s\r\n\r\nbody\r\n"
+    )
+
+    assert quote_reply(original, "hi") == quote_reply(original, "hi", locale="fr")
+    assert quote_reply(original, "hi") == (
+        "\n\nLe Mon, 01 Jan 2024 10:00:00 +0000, Ann <ann@x.org> a écrit :\n> hi"
+    )
+    assert quote_reply(original, "hi", locale="en") == (
+        "\n\nOn Mon, 01 Jan 2024 10:00:00 +0000, Ann <ann@x.org> wrote:\n> hi"
+    )

@@ -12,6 +12,7 @@ from imap_mcp.content import (
     excerpt,
     get_part,
     html_to_text,
+    part_bytes,
     payload_bytes,
     read_content,
 )
@@ -109,13 +110,6 @@ def test_inner_attachment_of_forwarded_message_is_indexed_for_get_part() -> None
     assert payload_bytes(part) == b"Inner attachment."
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "read_content skips message/rfc822 parts because Message.is_multipart() is True "
-        "for them, so a forwarded .eml is not listed as an attachment."
-    ),
-)
 def test_forwarded_message_is_listed_as_attachment() -> None:
     content = read_content(load("nested_rfc822.eml"))
 
@@ -150,3 +144,139 @@ def test_excerpt_keeps_short_text_and_marks_cut_text() -> None:
     assert excerpt("abc", 3) == "abc"
     assert excerpt("abc", 10) == "abc"
     assert excerpt("abcdef", 3) == "abc\n[truncated]"
+
+
+def _forwarded_mail(subject: str = "Quarterly: report/2024") -> bytes:
+    inner = EmailMessage()
+    inner["From"] = "ann@x.org"
+    inner["Subject"] = subject
+    inner.set_content("inner secret text")
+    outer = EmailMessage()
+    outer["From"] = "bob@x.org"
+    outer["Subject"] = "Fwd"
+    outer.set_content("outer body")
+    outer.add_attachment(inner)
+    return outer.as_bytes()
+
+
+def test_forwarded_message_is_listed_with_its_subject_as_file_name() -> None:
+    content = read_content(mime.parse(_forwarded_mail()))
+
+    assert [(a.filename, a.content_type) for a in content.attachments] == [
+        ("Quarterly report 2024.eml", "message/rfc822")
+    ]
+
+
+def test_forwarded_message_without_subject_gets_a_generic_name() -> None:
+    content = read_content(mime.parse(_forwarded_mail(subject="")))
+
+    assert content.attachments[0].filename == "message.eml"
+
+
+def test_text_of_forwarded_message_is_not_used_as_body() -> None:
+    content = read_content(mime.parse(_forwarded_mail()))
+
+    assert content.text.strip() == "outer body"
+    assert "inner secret" not in content.text
+    assert "inner secret" not in content.html
+
+
+def test_forwarded_message_size_is_the_serialized_sub_message() -> None:
+    msg = mime.parse(_forwarded_mail())
+    attachment = read_content(msg).attachments[0]
+    data = part_bytes(get_part(msg, attachment.index))  # type: ignore[arg-type]
+
+    assert attachment.size == len(data)
+    assert b"Subject: Quarterly: report/2024" in data
+    assert b"inner secret text" in data
+
+
+def test_part_bytes_of_forwarded_message_is_its_serialized_form() -> None:
+    msg = mime.parse(_forwarded_mail())
+    part = get_part(msg, read_content(msg).attachments[0].index)
+
+    assert part is not None
+    assert part.get_content_type() == "message/rfc822"
+    assert b"inner secret text" in part_bytes(part)
+
+
+@pytest.mark.parametrize("size", [0, 1, 2, 3, 4, 57, 58, 76, 1000, 4096])
+def test_base64_attachment_size_matches_decoded_length(size: int) -> None:
+    data = bytes(i % 256 for i in range(size))
+    msg = EmailMessage()
+    msg.set_content("text")
+    msg.add_attachment(data, maintype="application", subtype="octet-stream", filename="b.bin")
+
+    attachment = read_content(mime.parse(msg.as_bytes())).attachments[0]
+
+    assert attachment.size == size
+
+
+_QUOTED_PRINTABLE_MESSAGE = (
+    b"Content-Type: multipart/mixed; boundary=b\r\n\r\n"
+    b"--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n"
+    b'--b\r\nContent-Type: application/octet-stream; name="q.bin"\r\n'
+    b"Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+    b"caf=C3=A9=\r\n!\r\n--b--\r\n"
+)
+
+
+def test_quoted_printable_attachment_size_is_the_decoded_length() -> None:
+    attachment = read_content(mime.parse(_QUOTED_PRINTABLE_MESSAGE)).attachments[0]
+
+    assert attachment.size == len("café!".encode())
+
+
+@pytest.mark.parametrize("path", sorted(DATA.glob("*.eml")), ids=lambda p: p.name)
+def test_attachment_sizes_match_decoded_payloads_on_fixtures(path: Path) -> None:
+    msg = mime.parse(path.read_bytes())
+
+    for attachment in read_content(msg).attachments:
+        part = get_part(msg, attachment.index)
+        assert part is not None
+        assert attachment.size == len(part_bytes(part))
+
+
+def _inline_image_mail(with_pdf: bool = False) -> bytes:
+    msg = EmailMessage()
+    msg["From"] = "ann@x.org"
+    msg["Subject"] = "Logo"
+    msg.set_content("text")
+    msg.add_alternative('<p><img src="cid:logo@x"></p>', subtype="html")
+    msg.get_body(("html",)).add_related(  # type: ignore[union-attr]
+        b"PNG",
+        maintype="image",
+        subtype="png",
+        cid="<logo@x>",
+        filename="logo.png",
+        disposition="inline",
+    )
+    if with_pdf:
+        msg.add_attachment(b"%PDF", maintype="application", subtype="pdf", filename="doc.pdf")
+    return msg.as_bytes()
+
+
+def test_inline_image_is_detected_by_content_id() -> None:
+    attachments = read_content(mime.parse(_inline_image_mail())).attachments
+
+    assert len(attachments) == 1
+    logo = attachments[0]
+    assert logo.filename == "logo.png"
+    assert logo.content_type == "image/png"
+    assert logo.content_id == "logo@x"
+    assert logo.inline is True
+
+
+def test_regular_attachment_is_not_inline() -> None:
+    attachments = read_content(mime.parse(_inline_image_mail(with_pdf=True))).attachments
+    pdf = next(a for a in attachments if a.filename == "doc.pdf")
+
+    assert pdf.content_id is None
+    assert pdf.inline is False
+
+
+def test_part_bytes_returns_decoded_leaf_payload() -> None:
+    msg = mime.parse(_inline_image_mail())
+    logo = read_content(msg).attachments[0]
+
+    assert part_bytes(get_part(msg, logo.index)) == b"PNG"  # type: ignore[arg-type]

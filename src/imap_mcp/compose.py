@@ -8,13 +8,17 @@ from email.message import EmailMessage, Message
 from email.utils import formatdate, make_msgid
 from pathlib import Path
 
-from .content import Attachment, get_part, payload_bytes
+from .content import Attachment, get_part, part_bytes
 from .errors import MailError
-from .mime import decode_text
+from .mime import decode_text, parse
+from .templates import quote_header
 
 
 def add_bytes(msg: EmailMessage, data: bytes, content_type: str, filename: str) -> None:
     maintype, _, subtype = content_type.partition("/")
+    if content_type == "message/rfc822":
+        msg.add_attachment(parse(data), filename=filename)
+        return
     msg.add_attachment(
         data,
         maintype=maintype or "application",
@@ -23,11 +27,40 @@ def add_bytes(msg: EmailMessage, data: bytes, content_type: str, filename: str) 
     )
 
 
+def _references_cid(html: str, content_id: str) -> bool:
+    return f"cid:{content_id}".lower() in html.lower()
+
+
 def copy_attachments(source: Message, target: EmailMessage, attachments: list[Attachment]) -> None:
+    """Copy attachments to target. An inline part whose Content-ID the HTML body references
+    (cid:) is added to that HTML part as multipart/related; every other part is a regular
+    attachment."""
+    html_body = target.get_body(("html",))
+    html_text = str(html_body.get_content()) if html_body is not None else ""
     for attachment in attachments:
         part = get_part(source, attachment.index)
-        if part is not None:
-            add_bytes(target, payload_bytes(part), attachment.content_type, attachment.filename)
+        if part is None:
+            continue
+        data = part_bytes(part)
+        content_id = attachment.content_id
+        if (
+            html_body is not None
+            and attachment.inline
+            and content_id
+            and not attachment.content_type.startswith("message/")
+            and _references_cid(html_text, content_id)
+        ):
+            maintype, _, subtype = attachment.content_type.partition("/")
+            html_body.add_related(
+                data,
+                maintype=maintype or "application",
+                subtype=subtype or "octet-stream",
+                cid=f"<{content_id}>",
+                filename=attachment.filename,
+                disposition="inline",
+            )
+        else:
+            add_bytes(target, data, attachment.content_type, attachment.filename)
 
 
 def attach_files(msg: EmailMessage, paths: list[str] | None) -> None:
@@ -75,13 +108,12 @@ def build_message(
     return msg
 
 
-def quote_reply(original: Message, text: str) -> str:
-    """Quote the original text under a reply header."""
+def quote_reply(original: Message, text: str, locale: str = "fr") -> str:
+    """Quote the original text under a reply header in the given locale."""
     who = decode_text(original["From"])
     when = decode_text(original["Date"])
     quoted = "\n".join("> " + line for line in text.splitlines())
-    # The reply header is mail content, kept in French on purpose.
-    return f"\n\nLe {when}, {who} a écrit :\n{quoted}"
+    return f"\n\n{quote_header(locale, when, who)}\n{quoted}"
 
 
 def prefixed(subject: str, prefix: str, pattern: str) -> str:
