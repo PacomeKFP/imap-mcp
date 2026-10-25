@@ -57,24 +57,27 @@ class Rule:
 @dataclass
 class RightsFile:
     rules: list[Rule] = field(default_factory=list)
-    recipients: list[str] = field(default_factory=list)  # addresses or @domains allowed for mail.send
+    # Addresses or @domains allowed for mail.send.
+    recipients: list[str] = field(default_factory=list)
 
 
 Layer = tuple[str, RightsFile]
+Verdict = tuple[str | None, str, str]  # target, decision, source
+
+_ALLOWED_ON_TARGET = frozenset(
+    {("mail.create", DRAFTS), ("file.download", DOWNLOADS)})
 
 
 def default_decision(action: str, target: str | None) -> str:
-    if action in _ALLOWED_BY_DEFAULT:
-        return ALLOW
-    if action == "mail.create" and target == DRAFTS:
-        return ALLOW
-    if action == "file.download" and target == DOWNLOADS:
+    if action in _ALLOWED_BY_DEFAULT or (action, target) in _ALLOWED_ON_TARGET:
         return ALLOW
     return ASK
 
 
-def decide(layers: Sequence[Layer], action: str, target: str | None, separator: str = "/") -> tuple[str, str]:
-    """Return (decision, source) for one action on one target. The first layer with a match wins."""
+def decide(layers: Sequence[Layer], action: str, target: str | None,
+           separator: str = "/") -> tuple[str, str]:
+    """Return (decision, source) for one action on one target.
+    The first layer with a match wins."""
     for source, content in layers:
         found = [rule for rule in content.rules
                  if rule.action == action and _matches(rule.folder, target, separator)]
@@ -86,9 +89,20 @@ def decide(layers: Sequence[Layer], action: str, target: str | None, separator: 
     return default_decision(action, target), "default"
 
 
+def load_layers(config: Settings, session_id: str | None) -> list[Layer]:
+    """Rights of each layer in precedence order: session (when given), local, global."""
+    layers: list[Layer] = []
+    if session_id is not None:
+        layers.append(("session", load(session_file(config, session_id))))
+    layers.append(("local", load(local_file(config))))
+    layers.append(("global", load(global_file(config))))
+    return layers
+
+
 def recipient_allowed(entries: Iterable[str], address: str) -> bool:
     address = address.lower()
-    return any(address == entry.lower() or (entry.startswith("@") and address.endswith(entry.lower()))
+    return any(address == entry.lower()
+               or (entry.startswith("@") and address.endswith(entry.lower()))
                for entry in entries)
 
 
@@ -130,7 +144,8 @@ def session_file(config: Settings, session_id: str) -> Path:
 
 def latest_session(config: Settings) -> str | None:
     folder = sessions_dir(config)
-    names = sorted(entry.name for entry in folder.iterdir() if entry.is_dir()) if folder.is_dir() else []
+    names = (sorted(entry.name for entry in folder.iterdir() if entry.is_dir())
+             if folder.is_dir() else [])
     return names[-1] if names else None
 
 
@@ -171,7 +186,8 @@ def upsert_rule(content: RightsFile, rule: Rule) -> None:
 
 def remove_rule(content: RightsFile, action: str, folder: str | None) -> int:
     before = len(content.rules)
-    content.rules = [item for item in content.rules if (item.action, item.folder) != (action, folder)]
+    content.rules = [item for item in content.rules
+                     if (item.action, item.folder) != (action, folder)]
     return before - len(content.rules)
 
 

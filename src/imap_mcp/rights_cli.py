@@ -13,6 +13,7 @@ from .config import Settings, settings as default_settings
 from .errors import MailError
 
 LATEST = "latest"
+SECONDS_PER_DAY = 86_400
 
 
 def add_parser(commands) -> None:
@@ -165,11 +166,8 @@ def _print_rights(content: rights.RightsFile) -> None:
 
 
 def _explain(args: argparse.Namespace, config: Settings) -> int:
-    layers = [("global", rights.load(rights.global_file(config))),
-              ("local", rights.load(rights.local_file(config)))]
-    if args.session is not None:
-        session_id = _session_id(config, args.session)
-        layers.insert(0, ("session", rights.load(rights.session_file(config, session_id))))
+    session_id = _session_id(config, args.session) if args.session is not None else None
+    layers = rights.load_layers(config, session_id)
     separator = imap.folder_separator() if args.folder else "/"
     decision, source = rights.decide(layers, args.action, args.folder, separator)
     print(f"{args.action} on {args.folder or 'all folders'}: {decision} (from {source}).")
@@ -182,7 +180,7 @@ def _prune(args: argparse.Namespace, config: Settings) -> int:
         print("0 session folder(s) removed.")
         return 0
     sessions = sorted(entry for entry in folder.iterdir() if entry.is_dir())
-    cutoff = time.time() - args.days * 86400
+    cutoff = time.time() - args.days * SECONDS_PER_DAY
     removed = 0
     for entry in sessions[:-1]:  # the newest folder may belong to a running server
         if entry.stat().st_mtime < cutoff:
