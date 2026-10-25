@@ -234,13 +234,14 @@ async def get_thread(ctx: Context, uid: str, folder: str = "INBOX") -> list[dict
 
 
 def _get_thread(uid: str, folder: str) -> list[dict[str, Any]]:
+    thread: list[dict[str, Any]] = []
     with imap.session(folder) as conn:
         raw, _ = imap.fetch_raw(conn, uid)
         sent = imap.special_folder(conn, "sent")
-    message_ids = _message_ids(mime.parse(raw))
-    thread: list[dict[str, Any]] = []
-    for name in dict.fromkeys([folder, sent]):
-        with imap.session(name) as conn:
+        message_ids = _message_ids(mime.parse(raw))
+        for name in dict.fromkeys([folder, sent]):
+            if name != folder:
+                imap.select(conn, name)
             thread += _thread_items(conn, name, message_ids)
     return sorted(thread, key=lambda item: mime.sort_key(item["date"]))
 

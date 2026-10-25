@@ -1,10 +1,14 @@
-"""Pure helpers of the reading tools: date and paging validation, safe file names."""
+"""Pure helpers of the reading tools: date and paging validation, safe file names, thread connections."""
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
+from imap_mcp import imap
 from imap_mcp.errors import MailError
+from imap_mcp.tools import reading
 from imap_mcp.tools.reading import _imap_date, _page, safe_filename
 
 
@@ -77,3 +81,66 @@ def test_page_rejects_negative_offset() -> None:
 )
 def test_safe_filename(name: str, expected: str) -> None:
     assert safe_filename(name, "fallback") == expected
+
+
+RAW_MESSAGE = b"Message-ID: <a@example.test>\r\nSubject: hi\r\n\r\nbody\r\n"
+
+
+def test_get_thread_uses_one_connection_and_selects_sent_on_it(monkeypatch) -> None:
+    sessions: list[str | None] = []
+    selected: list[str] = []
+    searched: list[str] = []
+    conn = object()
+
+    @contextmanager
+    def fake_session(folder=None, readonly=True):
+        sessions.append(folder)
+        yield conn
+
+    def fake_search(connection, criteria, newest_first=False):
+        assert connection is conn
+        searched.append(criteria[-1])
+        return ["1"]
+
+    def fake_select(connection, folder, readonly=True):
+        assert connection is conn
+        selected.append(folder)
+        return 0
+
+    monkeypatch.setattr(imap, "session", fake_session)
+    monkeypatch.setattr(imap, "fetch_raw", lambda connection, uid: (RAW_MESSAGE, ""))
+    monkeypatch.setattr(imap, "special_folder", lambda connection, role: "Sent")
+    monkeypatch.setattr(imap, "select", fake_select)
+    monkeypatch.setattr(imap, "search_uids", fake_search)
+    monkeypatch.setattr(
+        imap,
+        "fetch_summaries",
+        lambda connection, uids: [{"date": "2026-01-02T10:00:00+00:00", "uid": uids[0]}],
+    )
+
+    thread = reading._get_thread("1", "INBOX")
+
+    assert sessions == ["INBOX"]
+    assert selected == ["Sent"]
+    assert {item["folder"] for item in thread} == {"INBOX", "Sent"}
+    assert searched
+
+
+def test_get_thread_does_not_reselect_when_sent_is_the_same_folder(monkeypatch) -> None:
+    selected: list[str] = []
+    monkeypatch.setattr(imap, "session", lambda folder=None, readonly=True: _connection())
+    monkeypatch.setattr(imap, "fetch_raw", lambda connection, uid: (RAW_MESSAGE, ""))
+    monkeypatch.setattr(imap, "special_folder", lambda connection, role: "INBOX")
+    monkeypatch.setattr(
+        imap, "select", lambda connection, folder, readonly=True: selected.append(folder)
+    )
+    monkeypatch.setattr(imap, "search_uids", lambda connection, criteria, newest_first=False: [])
+    monkeypatch.setattr(imap, "fetch_summaries", lambda connection, uids: [])
+
+    assert reading._get_thread("1", "INBOX") == []
+    assert selected == []
+
+
+@contextmanager
+def _connection():
+    yield object()
