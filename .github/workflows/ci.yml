@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      # Non-blocking until the formatting commit lands; remove continue-on-error afterwards.
+      - name: Format check
+        continue-on-error: true
+        run: uv run ruff format --check src tests
+
+      # Non-blocking until the remaining mypy findings in src are fixed.
+      - name: Type check
+        continue-on-error: true
+        run: uv run mypy src
+
+      - name: Tests
+        run: uv run pytest --cov=imap_mcp -q
