@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import imaplib
+from typing import Any
 
 from mcp.server.mcpserver import Context
 
@@ -12,7 +13,7 @@ from ..permissions import guard
 
 
 @mcp.tool()
-async def whoami(ctx: Context) -> dict:
+async def whoami(ctx: Context) -> dict[str, Any]:
     """Connected address, servers, read-only mode, download folder and current session id."""
     await guard.authorize(ctx, "account.read")
     user, _ = await in_thread(get_credentials)
@@ -27,15 +28,15 @@ async def whoami(ctx: Context) -> dict:
 
 
 @mcp.tool()
-async def list_folders(ctx: Context) -> list[dict]:
+async def list_folders(ctx: Context) -> list[dict[str, Any]]:
     """Folders with message count, unread count and role (drafts, sent, trash, junk, archive)."""
     await guard.authorize(ctx, "folder.read")
     return await in_thread(_list_folders)
 
 
-def _list_folders() -> list[dict]:
+def _list_folders() -> list[dict[str, Any]]:
     with imap.session() as conn:
-        result = []
+        result: list[dict[str, Any]] = []
         for folder in imap.list_folders(conn):
             counts = imap.folder_status(conn, folder.name)
             result.append({
@@ -48,13 +49,13 @@ def _list_folders() -> list[dict]:
 
 
 @mcp.tool()
-async def get_quota(ctx: Context) -> dict:
+async def get_quota(ctx: Context) -> dict[str, Any]:
     """Storage quota, when the server provides it (raw IMAP response)."""
     await guard.authorize(ctx, "account.read")
     return await in_thread(_get_quota)
 
 
-def _get_quota() -> dict:
+def _get_quota() -> dict[str, Any]:
     try:
         with imap.session() as conn:
             status, data = conn.getquotaroot("INBOX")
