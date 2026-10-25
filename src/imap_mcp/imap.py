@@ -5,8 +5,9 @@ from __future__ import annotations
 import imaplib
 import re
 import ssl
+import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -14,7 +15,7 @@ from typing import Any
 
 from . import mime, utf7
 from .config import TIMEOUT, get_credentials, require, settings
-from .errors import MailError
+from .errors import ConfigError, MailError
 
 Connection = imaplib.IMAP4_SSL
 imaplib.Commands.setdefault("MOVE", ("SELECTED",))  # RFC 6851; imaplib does not know MOVE
@@ -97,7 +98,7 @@ def session(folder: str | None = None, readonly: bool = True) -> Iterator[Connec
     conn = Connection(
         require(settings.imap_host, "MAIL_HOST"),
         settings.imap_port,
-        timeout=TIMEOUT,
+        timeout=getattr(settings, "timeout", TIMEOUT),
         ssl_context=tls_context(),
     )
     try:
@@ -176,17 +177,83 @@ def list_folders(conn: Connection) -> list[Folder]:
     return folders
 
 
-def special_folder(conn: Connection, role: str) -> str:
-    """Special folder name (sent, drafts, trash, junk, archive), by attribute then by name."""
-    folders = list_folders(conn)
-    for folder in folders:
-        if folder.role == role:
-            return folder.name
+# Folder roles and the hierarchy separator change rarely, so they are cached per account.
+CACHE_TTL_SECONDS = 300
+_clock: Callable[[], float] = time.monotonic
+_cache_lock = threading.Lock()
+_CacheKey = tuple[str, str, object]
+_role_cache: dict[_CacheKey, tuple[float, dict[str, str | None]]] = {}
+_separator_cache: dict[_CacheKey, tuple[float, str]] = {}
+
+
+def _cache_key() -> _CacheKey:
+    """(IMAP host, user, connection factory) that scopes the caches.
+
+    The user is empty when no credentials are stored. The factory is constant in production
+    (``Connection``); including it keeps entries from leaking between connection doubles.
+    """
+    try:
+        user, _ = get_credentials()
+    except ConfigError:
+        user = ""
+    return settings.imap_host, user, Connection
+
+
+def _is_fresh(stored_at: float) -> bool:
+    return _clock() - stored_at < CACHE_TTL_SECONDS
+
+
+def clear_caches() -> None:
+    """Forget cached folder roles and separators, e.g. after folders were created or renamed."""
+    with _cache_lock:
+        _role_cache.clear()
+        _separator_cache.clear()
+
+
+def _roles_in(folders: list[Folder]) -> dict[str, str | None]:
+    """Folder name of every special role: by SPECIAL-USE attribute, then by fallback name."""
     by_lower = {folder.name.lower(): folder.name for folder in folders}
-    for fallback in SPECIAL_ROLES[role]:
-        if fallback.lower() in by_lower:
-            return by_lower[fallback.lower()]
-    raise MailError(f"Special folder not found: {role}", code="special_folder_missing")
+    roles: dict[str, str | None] = {}
+    for role, fallbacks in SPECIAL_ROLES.items():
+        found = next((folder.name for folder in folders if folder.role == role), None)
+        if found is None:
+            found = next(
+                (by_lower[name.lower()] for name in fallbacks if name.lower() in by_lower), None
+            )
+        roles[role] = found
+    return roles
+
+
+def _role_name(roles: dict[str, str | None], role: str) -> str:
+    if role not in SPECIAL_ROLES:
+        raise MailError(f"Unknown special folder role: {role}", code="invalid_argument")
+    name = roles.get(role)
+    if name is None:
+        raise MailError(f"Special folder not found: {role}", code="special_folder_missing")
+    return name
+
+
+def special_folder(conn: Connection, role: str) -> str:
+    """Special folder name (sent, drafts, trash, junk, archive), by attribute then by name.
+
+    One LIST resolves every role, so the result also refreshes the role cache.
+    """
+    key = _cache_key()
+    roles = _roles_in(list_folders(conn))
+    with _cache_lock:
+        _role_cache[key] = (_clock(), roles)
+    return _role_name(roles, role)
+
+
+def cached_special_folder(role: str) -> str:
+    """Special folder name, served from the cache; opens a session only on a miss or after the TTL."""
+    key = _cache_key()
+    with _cache_lock:
+        entry = _role_cache.get(key)
+        if entry is not None and _is_fresh(entry[0]):
+            return _role_name(entry[1], role)
+    with session() as conn:
+        return special_folder(conn, role)
 
 
 def folder_status(conn: Connection, folder: str) -> tuple[int, int] | None:
@@ -318,6 +385,8 @@ def ensure_folder(conn: Connection, name: str) -> None:
     status, data = conn.create(quote(name))
     expect_ok(status, data, f"Create {name}")
     conn.subscribe(quote(name))
+    with _cache_lock:
+        _role_cache.pop(_cache_key(), None)
 
 
 def _separator_from_row(row: Any) -> str | None:
@@ -332,14 +401,20 @@ def _separator_from_row(row: Any) -> str | None:
 
 
 def folder_separator() -> str:
-    """Hierarchy separator of the server, such as '/' or '.'."""
+    """Hierarchy separator of the server, such as '/' or '.'. Cached like the folder roles."""
+    key = _cache_key()
+    with _cache_lock:
+        entry = _separator_cache.get(key)
+        if entry is not None and _is_fresh(entry[0]):
+            return entry[1]
     with session() as conn:
         _, rows = conn.list('""', '""')
-    for row in rows or []:
-        separator = _separator_from_row(row)
-        if separator is not None:
-            return separator
-    return "/"
+    separator = next(
+        (found for row in rows or [] if (found := _separator_from_row(row)) is not None), "/"
+    )
+    with _cache_lock:
+        _separator_cache[key] = (_clock(), separator)
+    return separator
 
 
 def append(conn: Connection, folder: str, message: EmailMessage, flags: str = "") -> None:
