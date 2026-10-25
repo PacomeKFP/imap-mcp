@@ -58,7 +58,7 @@ def mail(monkeypatch: pytest.MonkeyPatch) -> FakeMail:
     def session(folder: str | None = None, readonly: bool = True) -> Iterator[None]:
         yield None
 
-    def special_folder(conn: object, role: str) -> str:
+    def cached_special_folder(role: str) -> str:
         return {"sent": SENT_FOLDER, "drafts": DRAFTS_FOLDER}[role]
 
     def send(message: EmailMessage, recipients: list[str]) -> None:
@@ -84,7 +84,7 @@ def mail(monkeypatch: pytest.MonkeyPatch) -> FakeMail:
         return None
 
     monkeypatch.setattr(imap, "session", session)
-    monkeypatch.setattr(imap, "special_folder", special_folder)
+    monkeypatch.setattr(imap, "cached_special_folder", cached_special_folder)
     monkeypatch.setattr(imap, "ensure_folder", lambda conn, name: None)
     monkeypatch.setattr(imap, "append", append)
     monkeypatch.setattr(imap, "move", move)

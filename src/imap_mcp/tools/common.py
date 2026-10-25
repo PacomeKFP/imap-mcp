@@ -51,8 +51,7 @@ async def authorize_attachments(ctx: Context, attachments: list[str] | None) -> 
 
 
 def drafts_folder() -> str:
-    with imap.session() as conn:
-        return imap.special_folder(conn, "drafts")
+    return imap.cached_special_folder("drafts")
 
 
 def load_message(uid: str, folder: str) -> EmailMessage:
@@ -62,16 +61,16 @@ def load_message(uid: str, folder: str) -> EmailMessage:
 
 
 def save_draft(msg: EmailMessage) -> tuple[str, str | None]:
+    drafts = drafts_folder()
     with imap.session() as conn:
-        drafts = imap.special_folder(conn, "drafts")
         imap.append(conn, drafts, msg, r"\Draft")
         uid = imap.uid_by_message_id(conn, drafts, str(msg["Message-ID"]))
     return drafts, uid
 
 
 def save_to_sent(msg: EmailMessage) -> None:
+    sent = imap.cached_special_folder("sent")
     with imap.session() as conn:
-        sent = imap.special_folder(conn, "sent")
         imap.append(conn, sent, msg, r"\Seen")
 
 
