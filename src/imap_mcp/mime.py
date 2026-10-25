@@ -41,9 +41,15 @@ def emails(value: object) -> list[str]:
     return [item["email"] for item in addresses(value)]
 
 
+def _bare_addresses(*values: object) -> list[str]:
+    """Addresses of several header values; each value is parsed on its own, since
+    getaddresses over a list drops entries when a value is empty."""
+    return [addr for value in values if value
+            for _, addr in getaddresses([str(value)]) if addr]
+
+
 def all_recipients(msg: Message) -> list[str]:
-    fields = [str(msg.get(header) or "") for header in ("To", "Cc", "Bcc")]
-    return [addr for _, addr in getaddresses(fields) if addr]
+    return _bare_addresses(msg.get("To"), msg.get("Cc"), msg.get("Bcc"))
 
 
 def reply_target(original: Message, reply_all: bool, me: str) -> tuple[list[str], list[str]]:
